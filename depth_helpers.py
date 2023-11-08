@@ -6,6 +6,7 @@ from numba_stats import norm
 from scipy import stats
 from scipy.integrate import quad
 import pandas as pd
+from scipy.interpolate import interp1d
 
 
 global_gamma = 0.50
@@ -52,6 +53,62 @@ def gauss_plus_tail(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio):
 def gauss_plus_tail_pdf(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio, Emin = 640., Emax = 672.):
     return gauss_plus_tail(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio)/\
     quad(gauss_plus_tail, Emin, Emax, args=(BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio))[0]
+
+def depth_calibration_Am241(AC_param_file, DC_param_file, sim_file, DC_sim_mean = 186.1, AC_sim_mean = -182.6):
+    ### take in the Gaussian means from AC- and DC- side illumination with Am241 and compare to simulations to return a CTD->depth mapping function.
+    AC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
+    DC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
+    with open(AC_param_file) as file:
+        for line in file:
+            if '#' not in line:
+                splitline = line.split(', ')
+                p = int(splitline[0])
+                n = int(splitline[1])
+                AC_params[p][n] = float(splitline[2])
+    with open(DC_param_file) as file:
+        for line in file:
+            if '#' not in line:
+                splitline = line.split(', ')
+                p = int(splitline[0])
+                n = int(splitline[1])
+                DC_params[p][n] = float(splitline[2])
+    slope = ((AC_params - DC_params)/(AC_sim_mean - DC_sim_mean)) * (AC_params!=0.0) * (DC_params!=0.0)
+    print(slope)
+    intercept = (((AC_params+DC_params) - slope*(AC_sim_mean + DC_sim_mean))/2.) * (AC_params!=0.0) * (DC_params!=0.0)
+    slope_buff = np.array([[0.0 for p in range(38)] for n in range(38)])
+    slope_buff[1:-1][1:-1] = slope
+    for p in range(37):
+        for n in range(37):
+            if slope[p][n]==0.0:
+                buff_block = slope_buff[p:p+3][n:n+3]
+                mask = (buff_block!=0.0)
+                slope[p][n] = np.mean(buff_block[mask])
+    print(np.sum(slope==0.0))
+
+    intercept_buff = np.array([[0.0 for p in range(39)] for n in range(39)])
+    intercept_buff[1:-1][1:-1] = intercept
+    for p in range(37):
+        for n in range(37):
+            if intercept[p][n]==0.0:
+                buff_block = intercept_buff[p:p+3][n:n+3]
+                mask = (buff_block!=0.0)
+                intercept[p][n] = np.mean(buff_block[mask])
+    print(np.sum(intercept==0.0))
+    sim_ctd = []
+    sim_depth = []
+    with open(sim_file) as file:
+        for line in file:
+            sim_ctd.append(float(line.split(',')[1]))
+            sim_depth.append(float(line.split(',')[0]))
+    sim_ctd = np.array(sim_ctd)
+    sim_depth = np.array(sim_depth)
+    sim_interp = interp1d(sim_ctd, sim_depth)
+    def depth_from_timing(p_strip, n_strip, p_time, n_time):
+        ctd = (p_time + (5.*np.random.rand())) - (n_time + (5.*np.random.rand()))
+        return sim_interp((ctd-intercept[p_strip][n_strip])/slope[p_strip][n_strip])
+    return depth_from_timing
+
+
 
 def make_df_from_dat(files, e_min = 640., e_max = 672.):
     
