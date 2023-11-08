@@ -88,7 +88,7 @@ def plotCTD(CTD, outdir, file_prefix, fit_CTD):
 
 	if fit_CTD:
 		with open(outdir + '/CTD_parameters.txt', 'w') as f:
-			f.write('### Paramters of the CTD determined using Gaussian fits.\n')
+			f.write('### Parameters of the CTD determined using Gaussian fits.\n')
 			f.write('### p strip, n strip, gauss mean, gauss sigma, mean err, sigma err\n')
 			for p in range(37):
 				for n in range(37):
