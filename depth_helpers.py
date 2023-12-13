@@ -33,7 +33,7 @@ def exp_tail(x, x0, gamma):
     return (np.exp(gamma*(x-x0)))
 
 # @njit
-def linear_tail(x, x0, sigma, m):
+def linear_tail(x, x0, m):
     return (1+m*(x-x0))
 
 # @njit
@@ -43,7 +43,7 @@ def gaussian(x,x0,sigma):
 # @njit
 def gauss_plus_tail(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio):
     return (gaussian(x,x0,sigma_gauss) + BoverA*exp_tail(x, x0, gamma)*shelf(x,x0, sigma_gauss*sigma_ratio) + \
-            BoverA*CoverB*linear_tail(x, x0, sigma_gauss*sigma_ratio, D)*shelf(x,x0, sigma_gauss*sigma_ratio))
+            BoverA*CoverB*linear_tail(x, x0, D)*shelf(x,x0, sigma_gauss*sigma_ratio))
 
 # # @njit
 # def gauss_plus_tail(x, BoverA, x0, sigma_gauss):
@@ -55,6 +55,7 @@ def gauss_plus_tail_pdf(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_rati
     quad(gauss_plus_tail, Emin, Emax, args=(BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio))[0]
 
 class DepthCalibrator_Am241:
+    ### TODO: unbinned analysis with noise.
     def __init__(self, AC_param_file, DC_param_file, sim_file, DC_sim_mean = 186.1, AC_sim_mean = -182.6, savefile=None):
         ### take in the Gaussian means from AC- and DC- side illumination with Am241 and compare to simulations to return a CTD->depth mapping function.
         self.AC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
