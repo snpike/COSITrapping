@@ -7,6 +7,7 @@ from scipy import stats
 from scipy.integrate import quad
 import pandas as pd
 from scipy.interpolate import interp1d, CubicSpline
+import dat2CTD
 
 
 global_gamma = 0.50
@@ -54,14 +55,145 @@ def gauss_plus_tail_pdf(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_rati
     return gauss_plus_tail(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio)/\
     quad(gauss_plus_tail, Emin, Emax, args=(BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio))[0]
 
+# class DepthCalibrator_Am241:
+#     ### TODO: unbinned analysis with noise.
+#     def __init__(self, AC_param_file, DC_param_file, sim_file, DC_sim_mean = 186.1, AC_sim_mean = -182.6, savefile=None):
+#         ### take in the Gaussian means from AC- and DC- side illumination with Am241 and compare to simulations to return a CTD->depth mapping function.
+#         self.AC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
+#         self.DC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
+#         self.DC_sim_mean=DC_sim_mean
+#         self.AC_sim_mean=AC_sim_mean
+
+#         ### Read in the Gaussian centroids determined for AC side illumination using dat2CTD.py
+#         with open(AC_param_file) as file:
+#             for line in file:
+#                 if '#' not in line:
+#                     splitline = line.split(', ')
+#                     p = int(splitline[0])
+#                     n = int(splitline[1])
+#                     self.AC_params[p][n] = float(splitline[2])
+
+#         ### Read in the Gaussian centroids determined for DC side illumination using dat2CTD.py
+#         with open(DC_param_file) as file:
+#             for line in file:
+#                 if '#' not in line:
+#                     splitline = line.split(', ')
+#                     p = int(splitline[0])
+#                     n = int(splitline[1])
+#                     self.DC_params[p][n] = float(splitline[2])
+
+#         ### Calculate the slope or the stretch factor mapping from simulated ctd to measured ctd
+#         self.slope = ((self.AC_params - self.DC_params)/(AC_sim_mean - DC_sim_mean)) * (self.AC_params!=0.0) * (self.DC_params!=0.0)
+
+#         ### Calculate the intercept or offset mapping from simulated ctd to measured ctd
+#         self.intercept = (((self.AC_params+self.DC_params) - self.slope*(AC_sim_mean + DC_sim_mean))/2.) * (self.AC_params!=0.0) * (self.DC_params!=0.0)
+        
+#         ### Some pixels were unable to be fit due to low counts. Take the mean of adjacent good pixels to guess the slope
+#         slope_buff = np.array([[0.0 for p in range(39)] for n in range(39)])
+#         slope_buff[1:-1, 1:-1] = self.slope
+#         for p in range(37):
+#             for n in range(37):
+#                 if self.slope[p][n]==0.0:
+#                     buff_block = slope_buff[p:p+3,n:n+3]
+#                     mask = (buff_block!=0.0)
+#                     self.slope[p][n] = np.mean(buff_block[mask])
+
+#         ### Some pixels were unable to be fit due to low counts. Take the mean of adjacent good pixels to guess the intercept
+#         intercept_buff = np.array([[0.0 for p in range(39)] for n in range(39)])
+#         intercept_buff[1:-1, 1:-1] = self.intercept
+#         for p in range(37):
+#             for n in range(37):
+#                 if self.intercept[p][n]==0.0:
+#                     buff_block = intercept_buff[p:p+3,n:n+3]
+#                     mask = (buff_block!=0.0)
+#                     self.intercept[p][n] = np.mean(buff_block[mask])
+
+#         ### Save a depth calibration file if a path is provided.
+#         ### Currently, depth calibration with nuclearizer doesn't work for the spare detector, so don't use this file yet.
+#         if savefile is not None:
+#             pix_code = []
+#             pix_stretch = []
+#             pix_offset = []
+#             for p in range(37):
+#                 for n in range(37):
+#                     ### p=AC=y strips I'm pretty sure...
+#                     pix_code.append(int(110000 + 100*(n+1) + p+1))
+#                     pix_stretch.append(self.slope[p][n])
+#                     pix_offset.append(self.intercept[p][n])
+#             pix_code = np.array(pix_code)
+#             pix_stretch = np.array(pix_stretch)[np.argsort(pix_code)]
+#             pix_offset = np.array(pix_offset)[np.argsort(pix_code)]
+#             pix_code = np.sort(pix_code)
+#             with open(savefile, 'w') as file:
+#                 for i in range(len(pix_code)):
+#                     file.write(str(pix_code[i]) + '   ' + str(pix_stretch[i]) + '   ' + str(pix_offset[i]) + '   0.035   1.0\n')
+        
+#         ### read in the simulated CTD -> depth file.     
+#         sim_ctd = []
+#         sim_depth = []
+#         with open(sim_file) as file:
+#             for line in file:
+#                 sim_ctd.append(float(line.split(',')[1]))
+#                 sim_depth.append(float(line.split(',')[0]))
+#         self.sim_ctd = np.array(sim_ctd)
+#         self.sim_depth = np.array(sim_depth)
+
+#         ### Because CTD in not monotonic, there are regions on the edges of the detector where we can't interpolate.
+#         ### Determine these regions and don't interpolate there.
+#         sim_ctd_diff = self.sim_ctd[1:] - self.sim_ctd[:-1]
+#         diff_midpoint = int(len(sim_ctd_diff)/2)
+#         # print(diff_midpoint)
+        
+#         ### Determine the first index where monotonicity begins
+#         self.start = 1
+#         while sim_ctd_diff[:diff_midpoint][-self.start]!=0.0:
+#             self.start+=1
+#         self.start = diff_midpoint-self.start + 1
+        
+#         ### Determine the last index to consider before monotonicity stops
+#         self.end = 0
+#         while sim_ctd_diff[diff_midpoint:][self.end]!=0.0:
+#             self.end+=1
+#         self.end = diff_midpoint+self.end
+        
+#         # print(start)
+#         # print(end)
+#         # sim_interp = interp1d(sim_ctd[start:end+1], sim_depth[start:end+1], bounds_error=False)
+#         self.sim_interp = CubicSpline(np.flip(self.sim_ctd[self.start:self.end+1]), np.flip(self.sim_depth[self.start:self.end+1]), extrapolate=True)
+
+#     ### Map the p and n times to a depth. Also returns a stretched and offset ctd
+#     def depth_from_timing(self, p_strip, n_strip, p_time, n_time):
+#         p_time = np.array(p_time)
+#         n_time = np.array(n_time)
+
+#         ### map the observed ctd to the simulated curve using the stretch and offset for the specified pixel
+#         ctd_obs = (p_time + (5.*np.random.rand(*p_time.shape))) - (n_time + (5.*np.random.rand(*n_time.shape)))
+#         ### Note that strip numbers that come out of nuclearizer are 1-indexed
+#         ctd_stretch = (ctd_obs-self.intercept[p_strip-1][n_strip-1])/self.slope[p_strip-1][n_strip-1]
+
+#         ### Map the simulated ctd to depth
+#         depth = self.sim_interp(ctd_stretch)
+
+#         ### ctds that fall outside the range of monotonicity will be assigned a depth corresponding to 
+#         ### the center of the region where monotonicity is not maintained.
+#         edge_high_mask = ctd_stretch < self.sim_ctd[self.end]
+#         edge_low_mask = ctd_stretch > self.sim_ctd[self.start]
+#         depth[edge_low_mask] = np.mean(self.sim_depth[:self.start])
+#         depth[edge_high_mask] = np.mean(self.sim_depth[self.end+1:])
+#         return ctd_obs, ctd_stretch, depth
+
+#     def get_simdata(self):
+#         return self.sim_depth, self.sim_ctd
+
+
 class DepthCalibrator_Am241:
     ### TODO: unbinned analysis with noise.
-    def __init__(self, AC_param_file, DC_param_file, sim_file, DC_sim_mean = 186.1, AC_sim_mean = -182.6, savefile=None):
+    def __init__(self, AC_param_file, DC_param_file, AC_sim_ev, DC_sim_ev, sim_file, savefile=None):
         ### take in the Gaussian means from AC- and DC- side illumination with Am241 and compare to simulations to return a CTD->depth mapping function.
+        self.DC_sim_CTD = []
+        self.AC_sim_CTD = []
         self.AC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
         self.DC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
-        self.DC_sim_mean=DC_sim_mean
-        self.AC_sim_mean=AC_sim_mean
 
         ### Read in the Gaussian centroids determined for AC side illumination using dat2CTD.py
         with open(AC_param_file) as file:
@@ -70,7 +202,7 @@ class DepthCalibrator_Am241:
                     splitline = line.split(', ')
                     p = int(splitline[0])
                     n = int(splitline[1])
-                    self.AC_params[p][n] = float(splitline[2])
+                    self.AC_params[p][n] = (float(splitline[2]), float(splitline[3]))
 
         ### Read in the Gaussian centroids determined for DC side illumination using dat2CTD.py
         with open(DC_param_file) as file:
@@ -79,13 +211,59 @@ class DepthCalibrator_Am241:
                     splitline = line.split(', ')
                     p = int(splitline[0])
                     n = int(splitline[1])
-                    self.DC_params[p][n] = float(splitline[2])
+                    self.DC_params[p][n] = (float(splitline[2]), float(splitline[3]))
 
-        ### Calculate the slope or the stretch factor mapping from simulated ctd to measured ctd
-        self.slope = ((self.AC_params - self.DC_params)/(AC_sim_mean - DC_sim_mean)) * (self.AC_params!=0.0) * (self.DC_params!=0.0)
 
-        ### Calculate the intercept or offset mapping from simulated ctd to measured ctd
-        self.intercept = (((self.AC_params+self.DC_params) - self.slope*(AC_sim_mean + DC_sim_mean))/2.) * (self.AC_params!=0.0) * (self.DC_params!=0.0)
+        with open(AC_sim_ev) as file:
+            for line in file:
+                self.AC_sim_CTD.append(float(line.split(',')[1]))
+        self.AC_sim_CTD = np.array(self.AC_sim_CTD) 
+
+        with open(DC_sim_ev) as file:
+            for line in file:
+                self.DC_sim_CTD.append(float(line.split(',')[1]))
+        self.DC_sim_CTD = np.array(self.DC_sim_CTD)
+
+        ### TODO: Make a relation between noise and FWHM for the simulated data.
+        ### For each pixel, make histograms of the simulated CTD with the proper amount of noise
+        ### Fill in the AC_params and DC_params accordingly
+        noise_mu_sigma_AC = []
+        for i in range(100):
+            noise=np.random.normal(loc=0.0, scale=float(i)+10., size=self.AC_sim_CTD.shape)
+            temp_sim = self.AC_sim_CTD + noise
+            sim_hist, sim_bin_edges = np.histogram(temp_sim, bins=700., range=(-350.,350.), density=True)
+            bin_centers = (sim_bin_edges[1:] + sim_bin_edges[:-1])/2.
+            p0 = [500., -200., 30.]
+            popt, pcov = curve_fit(dat2CTD.gauss, bin_centers, sim_hist, p0=p0)
+            noise_to_sigma_AC.append([(float(i)+10.), popt[1], popt[2]])
+        noise_mu_sigma_AC = np.array(noise_mu_sigma_AC)
+
+        noise_mu_sigma_DC = []
+        for i in range(100):
+            noise=np.random.normal(loc=0.0, scale=float(i)+10., size=self.DC_sim_CTD.shape)
+            temp_sim = self.DC_sim_CTD + noise
+            sim_hist, sim_bin_edges = np.histogram(temp_sim, bins=700., range=(-350.,350.), density=True)
+            bin_centers = (sim_bin_edges[1:] + sim_bin_edges[:-1])/2.
+            p0 = [500., 125., 30.]
+            popt, pcov = curve_fit(dat2CTD.gauss, bin_centers, sim_hist, p0=p0)
+            noise_to_sigma_DC.append([(float(i)+10.), popt[1], popt[2]])
+        noise_mu_sigma_DC = np.array(noise_mu_sigma_DC)
+
+        self.slope = np.zeros((37, 37))
+        self.intercept = np.zeros((37,37))
+
+        for p in range(37):
+            for n in range(37):
+                AC_mu_obs = self.AC_params[p][n][0]
+                DC_mu_obs = self.DC_params[p][n][0]
+                AC_sigma_obs = self.AC_params[p][n][1]
+                DC_sigma_obs = self.DC_params[p][n][1]
+                AC_mu_sim = noise_mu_sigma_AC.T[1][np.argmin(noise_mu_sigma_AC.T[2]-AC_sigma_obs)]
+                DC_mu_sim = noise_mu_sigma_DC.T[1][np.argmin(noise_mu_sigma_DC.T[2]-DC_sigma_obs)]
+
+                self.slope[p][n] = ((AC_mu_obs - DC_mu_obs)/(AC_mu_sim - DC_mu_sim)) * (AC_mu_obs!=0.0) * (DC_mu_obs!=0.0)
+                self.intercept[p][n] = (((AC_mu_obs+DC_mu_obs) - self.slope[p][n]*(AC_mu_sim + DC_mu_sim))/2.) * (AC_mu_obs!=0.0) * (DC_mu_obs!=0.0)
+
         
         ### Some pixels were unable to be fit due to low counts. Take the mean of adjacent good pixels to guess the slope
         slope_buff = np.array([[0.0 for p in range(39)] for n in range(39)])
@@ -183,6 +361,7 @@ class DepthCalibrator_Am241:
 
     def get_simdata(self):
         return self.sim_depth, self.sim_ctd
+
 
 
 def make_df_from_dat(files, e_min = 640., e_max = 672.):
