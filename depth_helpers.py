@@ -8,6 +8,7 @@ from scipy.integrate import quad
 import pandas as pd
 from scipy.interpolate import interp1d, CubicSpline
 import dat2CTD
+from scipy.optimize import curve_fit
 
 
 global_gamma = 0.50
@@ -187,13 +188,12 @@ def gauss_plus_tail_pdf(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_rati
 
 
 class DepthCalibrator_Am241:
-    ### TODO: unbinned analysis with noise.
     def __init__(self, AC_param_file, DC_param_file, AC_sim_ev, DC_sim_ev, sim_file, savefile=None):
         ### take in the Gaussian means from AC- and DC- side illumination with Am241 and compare to simulations to return a CTD->depth mapping function.
         self.DC_sim_CTD = []
         self.AC_sim_CTD = []
-        self.AC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
-        self.DC_params = np.array([[0.0 for p in range(37)] for n in range(37)])
+        self.AC_params = np.array([[[0.0,0.0] for p in range(37)] for n in range(37)])
+        self.DC_params = np.array([[[0.0,0.0] for p in range(37)] for n in range(37)])
 
         ### Read in the Gaussian centroids determined for AC side illumination using dat2CTD.py
         with open(AC_param_file) as file:
@@ -202,7 +202,7 @@ class DepthCalibrator_Am241:
                     splitline = line.split(', ')
                     p = int(splitline[0])
                     n = int(splitline[1])
-                    self.AC_params[p][n] = (float(splitline[2]), float(splitline[3]))
+                    self.AC_params[p][n] = [float(splitline[2]), float(splitline[3])]
 
         ### Read in the Gaussian centroids determined for DC side illumination using dat2CTD.py
         with open(DC_param_file) as file:
@@ -211,7 +211,7 @@ class DepthCalibrator_Am241:
                     splitline = line.split(', ')
                     p = int(splitline[0])
                     n = int(splitline[1])
-                    self.DC_params[p][n] = (float(splitline[2]), float(splitline[3]))
+                    self.DC_params[p][n] = [float(splitline[2]), float(splitline[3])]
 
 
         with open(AC_sim_ev) as file:
@@ -231,22 +231,22 @@ class DepthCalibrator_Am241:
         for i in range(100):
             noise=np.random.normal(loc=0.0, scale=float(i)+10., size=self.AC_sim_CTD.shape)
             temp_sim = self.AC_sim_CTD + noise
-            sim_hist, sim_bin_edges = np.histogram(temp_sim, bins=700., range=(-350.,350.), density=True)
+            sim_hist, sim_bin_edges = np.histogram(temp_sim, bins=700, range=(-350.,350.), density=True)
             bin_centers = (sim_bin_edges[1:] + sim_bin_edges[:-1])/2.
             p0 = [500., -200., 30.]
             popt, pcov = curve_fit(dat2CTD.gauss, bin_centers, sim_hist, p0=p0)
-            noise_to_sigma_AC.append([(float(i)+10.), popt[1], popt[2]])
+            noise_mu_sigma_AC.append([(float(i)+10.), popt[1], popt[2]])
         noise_mu_sigma_AC = np.array(noise_mu_sigma_AC)
 
         noise_mu_sigma_DC = []
         for i in range(100):
             noise=np.random.normal(loc=0.0, scale=float(i)+10., size=self.DC_sim_CTD.shape)
             temp_sim = self.DC_sim_CTD + noise
-            sim_hist, sim_bin_edges = np.histogram(temp_sim, bins=700., range=(-350.,350.), density=True)
+            sim_hist, sim_bin_edges = np.histogram(temp_sim, bins=700, range=(-350.,350.), density=True)
             bin_centers = (sim_bin_edges[1:] + sim_bin_edges[:-1])/2.
             p0 = [500., 125., 30.]
             popt, pcov = curve_fit(dat2CTD.gauss, bin_centers, sim_hist, p0=p0)
-            noise_to_sigma_DC.append([(float(i)+10.), popt[1], popt[2]])
+            noise_mu_sigma_DC.append([(float(i)+10.), popt[1], popt[2]])
         noise_mu_sigma_DC = np.array(noise_mu_sigma_DC)
 
         self.slope = np.zeros((37, 37))
@@ -258,8 +258,8 @@ class DepthCalibrator_Am241:
                 DC_mu_obs = self.DC_params[p][n][0]
                 AC_sigma_obs = self.AC_params[p][n][1]
                 DC_sigma_obs = self.DC_params[p][n][1]
-                AC_mu_sim = noise_mu_sigma_AC.T[1][np.argmin(noise_mu_sigma_AC.T[2]-AC_sigma_obs)]
-                DC_mu_sim = noise_mu_sigma_DC.T[1][np.argmin(noise_mu_sigma_DC.T[2]-DC_sigma_obs)]
+                AC_mu_sim = noise_mu_sigma_AC.T[1][np.argmin(np.abs(noise_mu_sigma_AC.T[2]-AC_sigma_obs))]
+                DC_mu_sim = noise_mu_sigma_DC.T[1][np.argmin(np.abs(noise_mu_sigma_DC.T[2]-DC_sigma_obs))]
 
                 self.slope[p][n] = ((AC_mu_obs - DC_mu_obs)/(AC_mu_sim - DC_mu_sim)) * (AC_mu_obs!=0.0) * (DC_mu_obs!=0.0)
                 self.intercept[p][n] = (((AC_mu_obs+DC_mu_obs) - self.slope[p][n]*(AC_mu_sim + DC_mu_sim))/2.) * (AC_mu_obs!=0.0) * (DC_mu_obs!=0.0)
