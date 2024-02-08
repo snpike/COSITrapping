@@ -197,6 +197,9 @@ class DepthCalibrator_Am241:
                 sim_depth.append(float(line.split(',')[0]))
         self.sim_ctd = np.array(sim_ctd)
         self.sim_depth = np.array(sim_depth)
+        
+        self.zmin = np.min(sim_depth)
+        self.zmax = np.max(sim_depth)
 
         ### Because CTD in not monotonic, there are regions on the edges of the detector where we can't interpolate.
         ### Determine these regions and don't interpolate there.
@@ -349,14 +352,14 @@ def make_df_from_dat(files, e_min = 640., e_max = 672.):
     df = pd.DataFrame(rows,columns=col_names)
     return df
 
-def make_depthplot(df, plot_suffix, z_min=0.0, z_max=1.5, num_z = 30, plot_dir="/home/cosilab/CalibrationData/figures/", source='Cs-137'):
+def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/home/cosilab/CalibrationData/figures/", source='Cs-137'):
     ### Take in a depth-calibrated dataset, bin events in depth, and fit the spectra.
     ### Produce and return depth plots.
     if source not in source_dict:
         print('Source not recognized. Must be one of the following: Am-241, Cs-137, Ba-133, Co-57')
     line_e = source_dict[source]
 
-    z_bins = np.arange(z_min,z_max + (z_max-z_min)/num_z,(z_max-z_min)/num_z)
+    z_bins = np.arange(zmin,zmax + (zmax-zmin)/num_z,(zmax-zmin)/num_z)
     df["z_binned"] = pd.cut(df["z"],bins=z_bins)
 
     centroid_list = []
@@ -400,7 +403,7 @@ def make_depthplot(df, plot_suffix, z_min=0.0, z_max=1.5, num_z = 30, plot_dir="
 
             c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
 
-            m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
+            m = Minuit(c, BoverA=0.5, x0=bin_centers[np.argmax(hist)], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
             m.limits["x0"] = (temp_emin, temp_emax)
             m.limits["BoverA", "sigma_gauss"] = (0, None)
             m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
@@ -477,10 +480,7 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
     plt.savefig(plot_dir + 'e_hole_trapping_' + plot_suffix + '.pdf')
     plt.close()
 
-    fig, axes = plt.subplots(figsize = (15, 18), nrows=2, ncols=2, sharex=True, sharey='row', gridspec_kw={'hspace':0, 'wspace':0})
-
-    emin_list = []
-    emax_list = []
+    fig, axes = plt.subplots(figsize = (18, 15), nrows=2, ncols=2, sharex=True, sharey=False, gridspec_kw={'hspace':0, 'wspace':0})
 
     for i, side in enumerate(splines):
         if side=='p':
@@ -492,42 +492,49 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
         
         ax = axes[0][i]
         energies = df['energy_'+side].values
-        temp_emin = stats.mode(np.floor(energies))[0] - 20.
-        temp_emax = stats.mode(np.floor(energies))[0] + 12.
+#         temp_emin = stats.mode(np.floor(energies))[0] - 20.
+#         temp_emax = stats.mode(np.floor(energies))[0] + 12.
         
-        emin_list.append(temp_emin)
-        emax_list.append(temp_emax)
+#         emin_list.append(temp_emin)
+#         emax_list.append(temp_emax)
 
-        emask = (energies < temp_emax) * (energies > temp_emin)
-        energies = energies[emask]
+#         emask = (energies < temp_emax) * (energies > temp_emin)
+#         energies = energies[emask]
         hist,binedges,_ = ax.hist(energies, histtype="step", bins=100, label="Uncorrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
+#         c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
 
-        m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-        m.limits["x0"] = (temp_emin, temp_emax)
-        m.limits["BoverA", "sigma_gauss"] = (0, None)
-        m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
-        m.migrad()
-        m.hesse()
-        print(m.params)
+#         m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
+#         m.limits["x0"] = (temp_emin, temp_emax)
+#         m.limits["BoverA", "sigma_gauss"] = (0, None)
+#         m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
+#         m.migrad()
+#         m.hesse()
+        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
+        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
+        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
+        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
+        print('FWHM = ' + str(round(fwhm, 2)))
+        print('FWTM = ' + str(round(fwtm, 2)))
+        # print(m.params)
 
-        BoverA, x0, sigma_gauss = m.values[:3]
-        A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
-            quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
-        B = A*BoverA
-        C = B*global_CoverB
+        # BoverA, x0, sigma_gauss = m.values[:3]
+        # A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
+        #     quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
+        # B = A*BoverA
+        # C = B*global_CoverB
 
-        ax.plot(bin_centers,A*gauss_plus_tail(bin_centers, BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio),color= color, lw=0.5)
-        ax.plot(bin_centers,A*gaussian(bin_centers, x0, sigma_gauss),color= color, ls='--', lw=0.5)
-        ax.plot(bin_centers, B*exp_tail(bin_centers, x0, gamma=global_gamma)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        ax.plot(bin_centers, C*linear_tail(bin_centers, x0, global_D)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        ax.axvline(x0, ls='--', color='C3')
+        # ax.plot(bin_centers,A*gauss_plus_tail(bin_centers, BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio),color= color, lw=0.5)
+        # ax.plot(bin_centers,A*gaussian(bin_centers, x0, sigma_gauss),color= color, ls='--', lw=0.5)
+        # ax.plot(bin_centers, B*exp_tail(bin_centers, x0, gamma=global_gamma)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
+        # ax.plot(bin_centers, C*linear_tail(bin_centers, x0, global_D)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
+        # ax.axvline(x0, ls='--', color='C3')
         ax.axvline(line_e, ls='--', color='C2')
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
+        ax.set_ylim(bottom=10., top = 2.0*np.max(hist))
         ax.legend(loc=2, fontsize=12)
 
         ### Correct the measured energies according to the CCE spline
@@ -535,47 +542,55 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
         df['depth_corrected_energy_'+side] = energies
 
         ax = axes[1][i]
-        temp_emin = stats.mode(np.floor(energies))[0] - 20.
-        temp_emax = stats.mode(np.floor(energies))[0] + 12.
+#         temp_emin = stats.mode(np.floor(energies))[0] - 20.
+#         temp_emax = stats.mode(np.floor(energies))[0] + 12.
         
-        emin_list.append(temp_emin)
-        emax_list.append(temp_emax)
+#         emin_list.append(temp_emin)
+#         emax_list.append(temp_emax)
 
-        emask = (energies < temp_emax) * (energies > temp_emin)
-        energies = energies[emask]
+#         emask = (energies < temp_emax) * (energies > temp_emin)
+#         energies = energies[emask]
         hist,binedges,_ = ax.hist(energies, histtype="step", bins=100, label="Corrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
+#         c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
 
-        m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-        m.limits["x0"] = (temp_emin, temp_emax)
-        m.limits["BoverA", "sigma_gauss"] = (0, None)
-        m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
-        m.migrad()
-        m.hesse()
-        print(m.params)
+#         m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
+#         m.limits["x0"] = (temp_emin, temp_emax)
+#         m.limits["BoverA", "sigma_gauss"] = (0, None)
+#         m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
+#         m.migrad()
+#         m.hesse()
+        
+        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
+        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
+        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
+        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
+        print('FWHM = ' + str(round(fwhm, 2)))
+        print('FWTM = ' + str(round(fwtm, 2)))
+#         print(m.params)
 
-        BoverA, x0, sigma_gauss = m.values[:3]
-        A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
-            quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
-        B = A*BoverA
-        C = B*global_CoverB
+#         BoverA, x0, sigma_gauss = m.values[:3]
+#         A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
+#             quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
+#         B = A*BoverA
+#         C = B*global_CoverB
 
-        ax.plot(bin_centers,A*gauss_plus_tail(bin_centers, BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio),color= color, lw=0.5)
-        ax.plot(bin_centers,A*gaussian(bin_centers, x0, sigma_gauss),color= color, ls='--', lw=0.5)
-        ax.plot(bin_centers, B*exp_tail(bin_centers, x0, gamma=global_gamma)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        ax.plot(bin_centers, C*linear_tail(bin_centers, x0, global_D)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        ax.axvline(x0, ls='--', color='C3')
+        # ax.plot(bin_centers,A*gauss_plus_tail(bin_centers, BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio),color= color, lw=0.5)
+        # ax.plot(bin_centers,A*gaussian(bin_centers, x0, sigma_gauss),color= color, ls='--', lw=0.5)
+        # ax.plot(bin_centers, B*exp_tail(bin_centers, x0, gamma=global_gamma)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
+        # ax.plot(bin_centers, C*linear_tail(bin_centers, x0, global_D)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
+        # ax.axvline(x0, ls='--', color='C3')
         ax.axvline(line_e, ls='--', color='C2')
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
-        ax.set_ylim(bottom=10.)
+        ax.set_ylim(bottom=10., top = 2.0*np.max(hist))
         ax.legend(loc=2, fontsize=12)
+        # ax.text(
 
-    axes[1][0].set_xlim(np.min(emin_list), np.max(emax_list))
-    axes[1][1].set_xlim(np.min(emin_list), np.max(emax_list))
+    # axes[1][0].set_xlim(np.min(emin_list), np.max(emax_list))
+    # axes[1][1].set_xlim(np.min(emin_list), np.max(emax_list))
     axes[1][0].set_xlabel("Energy (keV)")
     axes[1][1].set_xlabel("Energy (keV)")
     plt.tight_layout()
