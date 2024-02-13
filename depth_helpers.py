@@ -12,6 +12,7 @@ from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from iminuit import cost, Minuit
 import seaborn as sns
+from multiprocessing import Pool
 
 sns.set_context('talk', font_scale=1.0)
 sns.set_palette('colorblind')
@@ -285,6 +286,46 @@ class DepthCalibrator_Am241:
 
         return ctd_obs, ctd_stretch, depth, depth_err
 
+    ### Map the p and n times to a depth. Also returns a stretched and offset ctd
+    def depth_from_timing_and_energy(self, p_strip, n_strip, p_time, n_time, energy_p, energy_n, sim_dCCE_path, ae_over_ah, b, c):
+        ### Probabilistic depth estimate
+        p_time = np.array(p_time)
+        n_time = np.array(n_time)
+
+        ### map the observed ctd to the simulated curve using the stretch and offset for the specified pixel
+        ### Note that a float between 0 and 5 is added to each because of the CC readout.
+        ctd_obs = (p_time + (5.*np.random.rand(*p_time.shape))) - (n_time + (5.*np.random.rand(*n_time.shape)))
+        ### Strip numbers that come out of nuclearizer are 1-indexed
+        ctd_stretch = (ctd_obs-self.intercept[p_strip-1][n_strip-1])/(self.slope[p_strip-1][n_strip-1])
+
+        ### The noise on each event is energy dependent.
+        ### TODO: Double check this relation. Currently just a rough estimate.
+        m = (self.AC_noise - 12.)/((1./source_dict['Am-241']) - (1./source_dict['Cs-137']))
+        b = self.AC_noise - (m/source_dict['Am-241'])
+        noise = b + m/(energy_p.values)
+        
+        ### Map the simulated ctd to depth
+        depth = []
+        depth_err = []
+        for i, tau in enumerate(ctd_stretch):
+            ### Calculate the probability distribution with depth given measured tau and noise
+            prob_dist = stats.norm.pdf(self.sim_ctd, loc=tau, scale=noise[i])
+            mean_depth = np.sum(prob_dist*self.sim_depth)/np.sum(prob_dist)
+            sigma_depth = np.sqrt(np.sum(prob_dist*np.square(self.sim_depth-mean_depth))/np.sum(prob_dist))
+            
+            prob_norm = (np.sum(prob_dist) - ((prob_dist[0] + prob_dist[-1])/2.))
+
+            ### Assign the depth randomly given the probability distribution
+            prob_dist = prob_dist/prob_norm
+            cdf = np.concatenate([[0.0], (np.cumsum(prob_dist)-((prob_dist + prob_dist[0])/2.0))[1:]])
+            depth.append(interp1d(cdf, self.sim_depth)(np.random.uniform()))
+            
+            ### Assign 1-sigma depth error given the probability distribution
+            depth_err.append(sigma_depth)
+
+        return ctd_obs, ctd_stretch, depth, depth_err
+
+
 
     def get_simdata(self):
         return self.sim_depth, self.sim_ctd
@@ -308,10 +349,10 @@ def make_df_from_dat(files, e_min = 640., e_max = 672.):
             #for each line, start a block of lines corresponding to an event
                 
                 if line.startswith('SE'):
-                # If the accumulated block has 6 lines then it's a single-pixel event
-                    
-                    if len(ev_block) == 6:
-                        if np.product(np.array([("BD" not in l) for l in ev_block])):
+                # If the accumulated block has 6 lines then it's a single-pixel event. 
+                # Allowing for "bad pairing" events to recover events with extreme energy differences due to trapping.
+                    if (len(ev_block) == 6 and np.product(np.array([("BD" not in l) for l in ev_block]))) or \
+                    (len(ev_block) == 7 and np.sum(np.array([("bad pairing" in l) for l in ev_block]))):
                             
                             ID = int(ev_block[0].split(" ")[-1].strip("\n"))
 
@@ -327,7 +368,9 @@ def make_df_from_dat(files, e_min = 640., e_max = 672.):
                             time_n = float(ev_block[4].split(" ")[5])
 
                             # select photopeak events
-                            if (energy_p < e_max and energy_p > e_min) and (energy_n < e_max and energy_n > e_min) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
+                            ### Allow DC energy to be lower than the minimum to account for trapping.
+                            # if (energy_p < e_max and energy_p > e_min) and (energy_n < e_max and energy_n > e_min) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
+                            if (energy_p < e_max and energy_p > e_min) and (energy_n < e_max) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
 
                                 # save info from SH p line
                                 det = int(ev_block[3].split(" ")[1])
@@ -392,8 +435,8 @@ def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/h
             color = 'C' + str(j)
             
             energies = df.loc[df.z.le(z_bins[i+1])&df.z.gt(z_bins[i]), 'energy_'+side].values
-            temp_emin = stats.mode(np.floor(energies))[0] - 20.
-            temp_emax = stats.mode(np.floor(energies))[0] + 12.
+            temp_emin = stats.mode(np.floor(energies))[0] - 25.
+            temp_emax = stats.mode(np.floor(energies))[0] + 20.
             emin_list.append(temp_emin)
             emax_list.append(temp_emax)
             emask = (energies < temp_emax) * (energies > temp_emin)
@@ -404,7 +447,7 @@ def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/h
             c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
 
             m = Minuit(c, BoverA=0.5, x0=bin_centers[np.argmax(hist)], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-            m.limits["x0"] = (temp_emin, temp_emax)
+            m.limits["x0"] = (bin_centers[np.argmax(hist)]-5., bin_centers[np.argmax(hist)]+5.)
             m.limits["BoverA", "sigma_gauss"] = (0, None)
             m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
             m.migrad()
@@ -492,25 +535,25 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
         
         ax = axes[0][i]
         energies = df['energy_'+side].values
-#         temp_emin = stats.mode(np.floor(energies))[0] - 20.
-#         temp_emax = stats.mode(np.floor(energies))[0] + 12.
+        # temp_emin = stats.mode(np.floor(energies))[0] - 20.
+        # temp_emax = stats.mode(np.floor(energies))[0] + 12.
         
-#         emin_list.append(temp_emin)
-#         emax_list.append(temp_emax)
+        # emin_list.append(temp_emin)
+        # emax_list.append(temp_emax)
 
-#         emask = (energies < temp_emax) * (energies > temp_emin)
-#         energies = energies[emask]
+        # emask = (energies < temp_emax) * (energies > temp_emin)
+        # energies = energies[emask]
         hist,binedges,_ = ax.hist(energies, histtype="step", bins=100, label="Uncorrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-#         c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
+        # c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
 
-#         m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-#         m.limits["x0"] = (temp_emin, temp_emax)
-#         m.limits["BoverA", "sigma_gauss"] = (0, None)
-#         m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
-#         m.migrad()
-#         m.hesse()
+        # m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
+        # m.limits["x0"] = (temp_emin, temp_emax)
+        # m.limits["BoverA", "sigma_gauss"] = (0, None)
+        # m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
+        # m.migrad()
+        # m.hesse()
         fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
         fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
         fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
@@ -542,25 +585,25 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
         df['depth_corrected_energy_'+side] = energies
 
         ax = axes[1][i]
-#         temp_emin = stats.mode(np.floor(energies))[0] - 20.
-#         temp_emax = stats.mode(np.floor(energies))[0] + 12.
+        # temp_emin = stats.mode(np.floor(energies))[0] - 20.
+        # temp_emax = stats.mode(np.floor(energies))[0] + 12.
         
-#         emin_list.append(temp_emin)
-#         emax_list.append(temp_emax)
+        # emin_list.append(temp_emin)
+        # emax_list.append(temp_emax)
 
-#         emask = (energies < temp_emax) * (energies > temp_emin)
-#         energies = energies[emask]
+        # emask = (energies < temp_emax) * (energies > temp_emin)
+        # energies = energies[emask]
         hist,binedges,_ = ax.hist(energies, histtype="step", bins=100, label="Corrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-#         c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
+        # c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
 
-#         m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-#         m.limits["x0"] = (temp_emin, temp_emax)
-#         m.limits["BoverA", "sigma_gauss"] = (0, None)
-#         m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
-#         m.migrad()
-#         m.hesse()
+        # m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
+        # m.limits["x0"] = (temp_emin, temp_emax)
+        # m.limits["BoverA", "sigma_gauss"] = (0, None)
+        # m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
+        # m.migrad()
+        # m.hesse()
         
         fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
         fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
@@ -568,13 +611,13 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
         fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
         print('FWHM = ' + str(round(fwhm, 2)))
         print('FWTM = ' + str(round(fwtm, 2)))
-#         print(m.params)
+        # print(m.params)
 
-#         BoverA, x0, sigma_gauss = m.values[:3]
-#         A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
-#             quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
-#         B = A*BoverA
-#         C = B*global_CoverB
+        # BoverA, x0, sigma_gauss = m.values[:3]
+        # A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
+        #     quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
+        # B = A*BoverA
+        # C = B*global_CoverB
 
         # ax.plot(bin_centers,A*gauss_plus_tail(bin_centers, BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio),color= color, lw=0.5)
         # ax.plot(bin_centers,A*gaussian(bin_centers, x0, sigma_gauss),color= color, ls='--', lw=0.5)
@@ -599,3 +642,63 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
     plt.close()
 
     return df
+
+
+def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs-137'):
+    ### Fit the measured depth plots to simulated CCE curves in order to estimate trapping lengths.
+
+    if source not in source_dict:
+        print('Source not recognized. Must be one of the following: Am-241, Cs-137, Ba-133, Co-57')
+    line_e = source_dict[source]
+
+    sim_dCCE = np.loadtxt(sim_dCCE_path, delimiter=',').T
+    # print(sim_dCCE)
+
+    def e_depth_plot(z, ae, b, c):
+        CCE = ae*(1.-b*sim_dCCE[1][::-1])*(1.-c*sim_dCCE[2][::-1])
+        return UnivariateSpline(sim_dCCE[0], CCE)(z)
+
+    def h_depth_plot(z, ah, b, c):
+        CCE = ah*(1.-b*sim_dCCE[3][::-1])*(1.-c*sim_dCCE[4][::-1])
+        return UnivariateSpline(sim_dCCE[0], CCE)(z)
+
+    c = cost.LeastSquares(z_list, e_trapping[0], e_trapping[1], e_depth_plot) + cost.LeastSquares(z_list, h_trapping[0], h_trapping[1], h_depth_plot)
+
+    m = Minuit(c, ae=np.max(e_trapping[0]), ah=np.max(h_trapping[0]), b=10.0, c=10.)
+    m.limits["b", "c"] = (0, None)
+    m.migrad()
+    m.hesse()
+    m.minos()
+
+    plt.figure()
+
+    plt.errorbar(z_list, e_trapping[0], xerr = (z_list[1]-z_list[0])/2., yerr=e_trapping[1], fmt=" ", label="electron signal")
+    plt.errorbar(z_list, h_trapping[0], xerr = (z_list[1]-z_list[0])/2., yerr=h_trapping[1], fmt=" ", label="hole signal")
+
+    plt.plot(z_list, e_depth_plot(z_list, *m.values['ae', 'b', 'c']), color='C0', zorder=0, lw=0.9)
+    plt.plot(z_list, h_depth_plot(z_list, *m.values['ah', 'b', 'c']), color='C1', zorder=0, lw=0.9)
+
+    plt.axhline(line_e, ls='--', color='C2', zorder=0)
+    plt.legend()
+    plt.xlabel("Detector Depth (cm)"); plt.ylabel("Centroid Energy (keV)")
+    plt.tight_layout()
+    plt.savefig(plot_dir + 'CCE_fit_energy_' + plot_suffix + '.pdf')
+    plt.close()
+
+    plt.figure()
+
+    plt.errorbar(z_list, e_trapping[0]/m.values['ae'], xerr = (z_list[1]-z_list[0])/2., yerr=e_trapping[1]/m.values['ae'], fmt=" ", label="electron signal")
+    plt.errorbar(z_list, h_trapping[0]/m.values['ah'], xerr = (z_list[1]-z_list[0])/2., yerr=h_trapping[1]/m.values['ah'], fmt=" ", label="hole signal")
+
+    plt.plot(z_list, e_depth_plot(z_list, *m.values['ae', 'b', 'c'])/m.values['ae'], color='C0', zorder=0, lw=0.9)
+    plt.plot(z_list, h_depth_plot(z_list, *m.values['ah', 'b', 'c'])/m.values['ah'], color='C1', zorder=0, lw=0.9)
+
+    plt.legend()
+    plt.xlabel("Detector Depth (cm)")
+    plt.ylabel("CCE")
+    plt.ylim(top=1.0)
+    plt.tight_layout()
+    plt.savefig(plot_dir + 'CCE_fit_norm_' + plot_suffix + '.pdf')
+    plt.close()
+
+    return m
