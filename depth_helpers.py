@@ -24,7 +24,7 @@ global_D = 0.028
 global_sigma_ratio = 0.85
 
 ### Important calibration lines.
-source_dict = {'Am-241': 59.5409, 'Cs-137': 661.657,'Co-57': 122.06065, 'Ba-133': 356.0129}
+source_dict = {'Am-241': 59.5409, 'Cs-137': 661.657,'Co-57': 122.06065, 'Ba-133': 356.0129, 'Na-22': 1274.537}
 
 
 ### Functions for producing line profiles.
@@ -155,7 +155,7 @@ class DepthCalibrator_Am241:
         for p in range(37):
             for n in range(37):
                 if self.slope[p][n]==0.0:
-                    buff_block = slope_buff[p:p+3,n:n+3]
+                    buff_block = slope_buff[p:p+3][n:n+3]
                     mask = (buff_block!=0.0)
                     self.slope[p][n] = np.mean(buff_block[mask])
 
@@ -165,7 +165,7 @@ class DepthCalibrator_Am241:
         for p in range(37):
             for n in range(37):
                 if self.intercept[p][n]==0.0:
-                    buff_block = intercept_buff[p:p+3,n:n+3]
+                    buff_block = intercept_buff[p:p+3][n:n+3]
                     mask = (buff_block!=0.0)
                     self.intercept[p][n] = np.mean(buff_block[mask])
 
@@ -264,6 +264,8 @@ class DepthCalibrator_Am241:
         m = (self.AC_noise - 12.)/((1./source_dict['Am-241']) - (1./source_dict['Cs-137']))
         b = self.AC_noise - (m/source_dict['Am-241'])
         noise = b + m/(energy_p.values)
+
+        bad = np.logical_or(ctd_stretch > (np.max(self.sim_ctd) + 2*noise),ctd_stretch < (np.min(self.sim_ctd) - 2*noise))
         
         ### Map the simulated ctd to depth
         depth = []
@@ -284,13 +286,15 @@ class DepthCalibrator_Am241:
             ### Assign 1-sigma depth error given the probability distribution
             depth_err.append(sigma_depth)
 
-        return ctd_obs, ctd_stretch, depth, depth_err
+        return ctd_obs, ctd_stretch, np.array(depth), np.array(depth_err), bad
 
     ### Map the p and n times to a depth. Also returns a stretched and offset ctd
     def depth_from_timing_and_energy(self, p_strip, n_strip, p_time, n_time, energy_p, energy_n, sim_dCCE_path, ae_over_ah, b, c):
         ### Probabilistic depth estimate
         p_time = np.array(p_time)
         n_time = np.array(n_time)
+
+        sim_dCCE = np.loadtxt(sim_dCCE_path, delimiter=',').T
 
         ### map the observed ctd to the simulated curve using the stretch and offset for the specified pixel
         ### Note that a float between 0 and 5 is added to each because of the CC readout.
@@ -301,15 +305,22 @@ class DepthCalibrator_Am241:
         ### The noise on each event is energy dependent.
         ### TODO: Double check this relation. Currently just a rough estimate.
         m = (self.AC_noise - 12.)/((1./source_dict['Am-241']) - (1./source_dict['Cs-137']))
-        b = self.AC_noise - (m/source_dict['Am-241'])
-        noise = b + m/(energy_p.values)
+        d = self.AC_noise - (m/source_dict['Am-241'])
+        noise = d + m/(energy_p.values)
+
+        bad = np.logical_or(ctd_stretch > (np.max(self.sim_ctd) + 2*noise),ctd_stretch < (np.min(self.sim_ctd) - 2*noise))
+
+        e_cce = (1.-b*sim_dCCE[1][::-1])*(1.-c*sim_dCCE[2][::-1])
+        h_cce = (1.-b*sim_dCCE[3][::-1])*(1.-c*sim_dCCE[4][::-1])
+        depth_to_eratio = UnivariateSpline(sim_dCCE[0], ae_over_ah*(e_cce/h_cce))
+        eratio = energy_p.values/energy_n.values
         
         ### Map the simulated ctd to depth
         depth = []
         depth_err = []
         for i, tau in enumerate(ctd_stretch):
             ### Calculate the probability distribution with depth given measured tau and noise
-            prob_dist = stats.norm.pdf(self.sim_ctd, loc=tau, scale=noise[i])
+            prob_dist = stats.norm.pdf(self.sim_ctd, loc=tau, scale=noise[i]) * stats.norm.pdf(depth_to_eratio(self.sim_depth), loc=eratio[i], scale=0.004)
             mean_depth = np.sum(prob_dist*self.sim_depth)/np.sum(prob_dist)
             sigma_depth = np.sqrt(np.sum(prob_dist*np.square(self.sim_depth-mean_depth))/np.sum(prob_dist))
             
@@ -323,7 +334,7 @@ class DepthCalibrator_Am241:
             ### Assign 1-sigma depth error given the probability distribution
             depth_err.append(sigma_depth)
 
-        return ctd_obs, ctd_stretch, depth, depth_err
+        return ctd_obs, ctd_stretch, depth, depth_err, bad
 
 
 
@@ -339,7 +350,7 @@ def make_df_from_dat(files, e_min = 640., e_max = 672.):
     # HT x y z energy [cm, cm, cm, keV]   
 
     rows = []
-    col_names = ["ID","det","strip_p","energy_p", "time_p", "strip_n","energy_n", "time_n", "x","y","z", "z_err"]
+    col_names = ["ID","det","strip_p","energy_p", "time_p", "strip_n","energy_n", "time_n", "x","y","z", "z_err", "bad"]
     for file in files:
         with open(file, "r") as f:
             
@@ -385,7 +396,7 @@ def make_df_from_dat(files, e_min = 640., e_max = 672.):
                                 z = float(ev_block[5].split(" ")[3])
 
                                 # save info to df
-                                columns = [ID,det,strip_p,energy_p,time_p,strip_n,energy_n,time_n,x,y,z, 0.0]
+                                columns = [ID,det,strip_p,energy_p,time_p,strip_n,energy_n,time_n,x,y,z, 0.0, False]
                                 rows.append(columns)
                     ev_block = []
                     
@@ -644,7 +655,7 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
     return df
 
 
-def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs-137'):
+def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs-137', trim = 0.0):
     ### Fit the measured depth plots to simulated CCE curves in order to estimate trapping lengths.
 
     if source not in source_dict:
@@ -662,7 +673,16 @@ def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
         CCE = ah*(1.-b*sim_dCCE[3][::-1])*(1.-c*sim_dCCE[4][::-1])
         return UnivariateSpline(sim_dCCE[0], CCE)(z)
 
-    c = cost.LeastSquares(z_list, e_trapping[0], e_trapping[1], e_depth_plot) + cost.LeastSquares(z_list, h_trapping[0], h_trapping[1], h_depth_plot)
+    trim_index = 0
+    while (z_list[trim_index] - np.min(z_list)) <= trim:
+        trim_index += 1
+
+    trim_index -= 1
+
+    c = cost.LeastSquares(z_list[trim_index:len(z_list)-trim_index], e_trapping[0][trim_index:len(z_list)-trim_index], \
+        e_trapping[1][trim_index:len(z_list)-trim_index], e_depth_plot) + \
+    cost.LeastSquares(z_list[trim_index:len(z_list)-trim_index], h_trapping[0][trim_index:len(z_list)-trim_index], \
+        h_trapping[1][trim_index:len(z_list)-trim_index], h_depth_plot)
 
     m = Minuit(c, ae=np.max(e_trapping[0]), ah=np.max(h_trapping[0]), b=10.0, c=10.)
     m.limits["b", "c"] = (0, None)
@@ -687,8 +707,8 @@ def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
 
     plt.figure()
 
-    plt.errorbar(z_list, e_trapping[0]/m.values['ae'], xerr = (z_list[1]-z_list[0])/2., yerr=e_trapping[1]/m.values['ae'], fmt=" ", label="electron signal")
-    plt.errorbar(z_list, h_trapping[0]/m.values['ah'], xerr = (z_list[1]-z_list[0])/2., yerr=h_trapping[1]/m.values['ah'], fmt=" ", label="hole signal")
+    plt.errorbar(z_list, e_trapping[0]/m.values['ae'], xerr = (z_list[1]-z_list[0])/2., yerr=e_trapping[1]/m.values['ae'], fmt=".", label="electron signal")
+    plt.errorbar(z_list, h_trapping[0]/m.values['ah'], xerr = (z_list[1]-z_list[0])/2., yerr=h_trapping[1]/m.values['ah'], fmt=".", label="hole signal")
 
     plt.plot(z_list, e_depth_plot(z_list, *m.values['ae', 'b', 'c'])/m.values['ae'], color='C0', zorder=0, lw=0.9)
     plt.plot(z_list, h_depth_plot(z_list, *m.values['ah', 'b', 'c'])/m.values['ah'], color='C1', zorder=0, lw=0.9)
