@@ -24,8 +24,7 @@ global_D = 0.028
 global_sigma_ratio = 0.85
 
 ### Important calibration lines.
-source_dict = {'Am-241': 59.5409, 'Cs-137': 661.657,'Co-57': 122.06065, 'Ba-133': 356.0129, 'Na-22': 1274.537}
-
+source_dict = {'Am241': 59.5409, 'Cs137': 661.657,'Co57': 122.06065, 'Ba133': 356.0129, 'Na22': 1274.537}
 
 ### Functions for producing line profiles.
 
@@ -144,8 +143,8 @@ class DepthCalibrator_Am241:
 
         ### Save a noise parameter for the AC and DC sides which corresponds to the mean over all pixels
         ### of the noise required to make the simulations match the observed Am241 CTDs.
-        print(str(round(np.mean(AC_noise_match), 1)) + ' +/- ' + str(round(np.std(AC_noise_match), 1)))
-        print(str(round(np.mean(DC_noise_match), 1)) + ' +/- ' + str(round(np.std(DC_noise_match), 1)))
+        # print(str(round(np.mean(AC_noise_match), 1)) + ' +/- ' + str(round(np.std(AC_noise_match), 1)))
+        # print(str(round(np.mean(DC_noise_match), 1)) + ' +/- ' + str(round(np.std(DC_noise_match), 1)))
         self.AC_noise = np.mean(AC_noise_match)
         self.DC_noise = np.mean(DC_noise_match)
         
@@ -261,8 +260,8 @@ class DepthCalibrator_Am241:
 
         ### The noise on each event is energy dependent.
         ### TODO: Double check this relation. Currently just a rough estimate.
-        m = (self.AC_noise - 12.)/((1./source_dict['Am-241']) - (1./source_dict['Cs-137']))
-        b = self.AC_noise - (m/source_dict['Am-241'])
+        m = (self.AC_noise - 12.)/((1./source_dict['Am241']) - (1./source_dict['Cs137']))
+        b = self.AC_noise - (m/source_dict['Am241'])
         noise = b + m/(energy_p.values)
 
         bad = np.logical_or(ctd_stretch > (np.max(self.sim_ctd) + 2*noise),ctd_stretch < (np.min(self.sim_ctd) - 2*noise))
@@ -304,8 +303,8 @@ class DepthCalibrator_Am241:
 
         ### The noise on each event is energy dependent.
         ### TODO: Double check this relation. Currently just a rough estimate.
-        m = (self.AC_noise - 12.)/((1./source_dict['Am-241']) - (1./source_dict['Cs-137']))
-        d = self.AC_noise - (m/source_dict['Am-241'])
+        m = (self.AC_noise - 12.)/((1./source_dict['Am241']) - (1./source_dict['Cs137']))
+        d = self.AC_noise - (m/source_dict['Am241'])
         noise = d + m/(energy_p.values)
 
         bad = np.logical_or(ctd_stretch > (np.max(self.sim_ctd) + 2*noise),ctd_stretch < (np.min(self.sim_ctd) - 2*noise))
@@ -341,6 +340,124 @@ class DepthCalibrator_Am241:
     def get_simdata(self):
         return self.sim_depth, self.sim_ctd
 
+class Detector:
+
+    def __init__(self, irradiation_list, zmin, zmax, calibrator=None):
+        self.irradiation_list = irradiation_list
+        self.calibrator = calibrator
+        self.ae = None
+        self.ah = None
+        self.b = None
+        self.c = None
+        self.zmin = zmin
+        self.zmax = zmax
+
+class Irradiation:
+
+    def __init__(self, source, irr_side, filelist, emin = 30., emax=10000.):
+        
+        self.source = None
+        if s in source_dict:
+            if s[:2] == source.strip()[:2]:
+                self.source = s
+        if self.source is None:
+            raise Exception('The provided source was not recognized.')
+
+        if irr_side.strip().upper() in ['AC', 'DC', 'OTHER']:
+            self.irr_side = irr_side.strip().upper()
+        else:
+            raise Exception('The irradiation side was not recognized. Valid options are \"AC\", \"DC\", or \"other\"')
+
+        self.emin = emin
+        self.emax = emax        
+
+        self.data = None
+        self.load_data(filelist, emin=self.emin, emax=self.emax)
+        self.cce_corrected = False
+        self.spline_corrected = False
+        self.depth_calibrated = False
+        self.ctd_obs = None
+        self.ctd_stretch = None
+
+    def load_data(self, filelist, emin, emax):
+        # SH det  side  strip_num (starting at 1)  did strip trigger (0 or 1)  
+        # timing raw AD counter units  corrected AD counter units  ADC  energy  ??  
+        # HT x y z energy [cm, cm, cm, keV]
+
+        rows = []
+        col_names = ["det","strip_p","energy_p", "time_p", "strip_n","energy_n", "time_n", "x","y","z", "z_err", "bad"]
+        for file in filelist:
+            with open(file, "r") as f:
+                
+                ev_block = []
+                
+                for line in f:
+                #for each line, start a block of lines corresponding to an event
+                    
+                    if line.startswith('SE'):
+                    # If the accumulated block has 6 lines then it's a single-pixel event. 
+                    # Allowing for "bad pairing" events to recover events with extreme energy differences due to trapping.
+                        if (len(ev_block) == 6 and np.product(np.array([("BD" not in l) for l in ev_block]))) or \
+                        (len(ev_block) == 7 and np.sum(np.array([("bad pairing" in l) for l in ev_block]))):
+                                
+
+                                if len(ev_block[3].split(" ")) < 9:
+                                       print(ev_block)
+                                if len(ev_block[4].split(" ")) < 9:
+                                       print(ev_block)
+
+                                energy_p = float(ev_block[3].split(" ")[8])
+                                energy_n = float(ev_block[4].split(" ")[8])
+
+                                time_p = float(ev_block[3].split(" ")[5])
+                                time_n = float(ev_block[4].split(" ")[5])
+
+                                # select photopeak events
+                                ### Allow DC energy to be lower than the minimum to account for trapping.
+                                # if (energy_p < e_max and energy_p > e_min) and (energy_n < e_max and energy_n > e_min) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
+                                if (energy_p < e_max and energy_p > e_min) and (energy_n < e_max) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
+
+                                    # save info from SH p line
+                                    det = int(ev_block[3].split(" ")[1])
+                                    strip_p = int(ev_block[3].split(" ")[3])
+
+                                    # save info from SH n line
+                                    strip_n = int(ev_block[4].split(" ")[3])
+
+                                    # save position [cm] info from HT line
+                                    x = float(ev_block[5].split(" ")[1])
+                                    y = float(ev_block[5].split(" ")[2])
+                                    z = float(ev_block[5].split(" ")[3])
+
+                                    # save info to df
+                                    columns = [det,strip_p,energy_p,time_p,strip_n,energy_n,time_n,x,y,z, 0.0, False]
+                                    rows.append(columns)
+                        ev_block = []
+                        
+                    else:
+                        ev_block.append(line)
+        
+        df = pd.DataFrame(rows,columns=col_names)
+        if self.data is None:
+            self.data = df
+        else:
+            self.data = pd.concat(self.data, df)
+        return df
+
+    def calibrate_depth(self, calibrator, n_strips=37):
+        self.ctd_obs = [[[] for p in range(n_strips)] for n in range(n_strips)]
+        self.ctd_stretch = [[[] for p in range(n_strips)] for n in range(n_strips)]
+
+        for p in range(n_strips):
+            for n in range(n_strips):
+                ctd_obs_temp, ctd_stretch_temp, depth, depth_err, bad = calibrator.depth_from_timing_prob(p+1, n+1, self.data.loc[self.data.strip_p.eq(p+1)&self.data.strip_n.eq(n+1), 'time_p'], \
+                                                                                           self.data.loc[self.data.strip_p.eq(p+1)&self.data.strip_n.eq(n+1), 'time_n'], \
+                                                                                          self.data.loc[self.data.strip_p.eq(p+1)&self.data.strip_n.eq(n+1), 'energy_p'])
+                self.data.loc[self.data.strip_p.eq(p+1)&self.data.strip_n.eq(n+1), 'z'] =  depth
+                self.data.loc[self.data.strip_p.eq(p+1)&self.data.strip_n.eq(n+1), 'z_err'] =  depth_err
+                self.ctd_obs[p][n] = ctd_obs_temp[~bad]
+                self.ctd_stretch[p][n] = ctd_stretch_temp[~bad]
+        return
 
 
 def make_df_from_dat(files, e_min = 640., e_max = 672.):
@@ -381,7 +498,7 @@ def make_df_from_dat(files, e_min = 640., e_max = 672.):
                             # select photopeak events
                             ### Allow DC energy to be lower than the minimum to account for trapping.
                             # if (energy_p < e_max and energy_p > e_min) and (energy_n < e_max and energy_n > e_min) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
-                            if (energy_p < e_max and energy_p > e_min) and (energy_n < e_max) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
+                            if (energy_p < e_max and energy_n < e_max) and (energy_n > e_min or energy_p > e_min) and (np.abs(time_p)<400) and (np.abs(time_n)<400):
 
                                 # save info from SH p line
                                 det = int(ev_block[3].split(" ")[1])
@@ -406,14 +523,14 @@ def make_df_from_dat(files, e_min = 640., e_max = 672.):
     df = pd.DataFrame(rows,columns=col_names)
     return df
 
-def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/home/cosilab/CalibrationData/figures/", source='Cs-137'):
+def make_depthplot(df, plot_suffix, z_bins, plot_dir="/home/cosilab/CalibrationData/figures/", source='Cs137'):
     ### Take in a depth-calibrated dataset, bin events in depth, and fit the spectra.
     ### Produce and return depth plots.
     if source not in source_dict:
-        print('Source not recognized. Must be one of the following: Am-241, Cs-137, Ba-133, Co-57')
+        print('Source not recognized. Must be one of the following: Am241, Cs137, Ba133, Co57')
     line_e = source_dict[source]
 
-    z_bins = np.arange(zmin,zmax + (zmax-zmin)/num_z,(zmax-zmin)/num_z)
+    num_z = len(z_bins)-1
     df["z_binned"] = pd.cut(df["z"],bins=z_bins)
 
     centroid_list = []
@@ -430,7 +547,7 @@ def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/h
                             gridspec_kw={'hspace':0, 'wspace':0, 'height_ratios':np.array([(2,1) for i in range(num_z)]).flatten()})
     for i in range(num_z):
         
-        label = "{}-{} cm".format(round(z_bins[i], 1),round(z_bins[i+1], 1))
+        label = "{}-{} cm".format(round(z_bins[i], 2),round(z_bins[i+1], 2))
 
         # fit both sides
         temp_x0 = []
@@ -446,7 +563,7 @@ def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/h
             color = 'C' + str(j)
             
             energies = df.loc[df.z.le(z_bins[i+1])&df.z.gt(z_bins[i]), 'energy_'+side].values
-            temp_emin = stats.mode(np.floor(energies))[0] - 25.
+            temp_emin = stats.mode(np.floor(energies))[0] - 30.
             temp_emax = stats.mode(np.floor(energies))[0] + 20.
             emin_list.append(temp_emin)
             emax_list.append(temp_emax)
@@ -458,7 +575,7 @@ def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/h
             c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
 
             m = Minuit(c, BoverA=0.5, x0=bin_centers[np.argmax(hist)], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-            m.limits["x0"] = (bin_centers[np.argmax(hist)]-5., bin_centers[np.argmax(hist)]+5.)
+            m.limits["x0"] = (bin_centers[np.argmax(hist)]-3., bin_centers[np.argmax(hist)]+3.)
             m.limits["BoverA", "sigma_gauss"] = (0, None)
             m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
             m.migrad()
@@ -488,7 +605,7 @@ def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/h
             if j==0:
                 ax.set_ylabel("Counts")
             ax.set_yscale('log')
-            ax.set_ylim((1, 10000))
+            ax.set_ylim((np.min(hist) + 10., 2.0*np.max(hist)))
             ax.legend(loc=2, fontsize=12)
             resid_ax.axhline(0, color='red', lw=0.5)
 
@@ -505,28 +622,29 @@ def make_depthplot(df, plot_suffix, zmin=0.0, zmax=1.5, num_z = 30, plot_dir="/h
     plt.savefig(plot_dir + 'zplitspectra_uncorr_' + plot_suffix + '.pdf')
     plt.close()
 
-    centroid_list = np.array(centroid_list)
-    centroid_err_list = np.array(centroid_err_list)
+    centroid_list = np.array(centroid_list)/line_e
+    centroid_err_list = np.array(centroid_err_list)/line_e
 
-    return (z_bins[:-1]+z_bins[1:])/2, [centroid_list.T[0], centroid_err_list.T[0]], [centroid_list.T[1], centroid_err_list.T[1]]
+    return z_bins, [centroid_list.T[0], centroid_err_list.T[0]], [centroid_list.T[1], centroid_err_list.T[1]]
 
 
 
-def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs-137'):
+def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs137'):
     ### Correct measured energy on an event-by-event basis using the depth plots produced by make_depthplot.
     ### Return the dataset with corrected energies in new columns.
     if source not in source_dict:
-        print('Source not recognized. Must be one of the following: Am-241, Cs-137, Ba-133, Co-57')
+        print('Source not recognized. Must be one of the following: Am241, Cs137, Ba133, Co57')
     line_e = source_dict[source]
 
+    z_list = (z_bins[:-1] + z_bins[1:])/2.
+    z_err = (z_bins[1:]-z_bins[:-1])/2.
     splines = {'p': UnivariateSpline(z_list, e_trapping[0]), 'n': UnivariateSpline(z_list, h_trapping[0])}
     plt.figure()
-    z_err = [z_list[0], *((z_list[1:] - z_list[:-1])/2.)]
-    xs = np.linspace(z_list[0]-z_err[0], z_list[-1] + z_err[-1])
-    plt.plot(xs, splines['p'](xs), zorder=0, color='C0', ls = '--', lw = 0.75)
-    plt.plot(xs, splines['n'](xs), zorder=0, color='C1', ls = '--', lw = 0.75)
-    plt.errorbar(z_list, e_trapping[0], xerr = z_err, yerr=e_trapping[1], fmt=".", label="electron signal", color='C0')
-    plt.errorbar(z_list, h_trapping[0], xerr = z_err, yerr=h_trapping[1], fmt=".", label="hole signal", color='C1')
+    xs = np.linspace(z_bins[0], z_bins[-1])
+    plt.plot(xs, splines['p'](xs)*line_e, zorder=0, color='C0', ls = '--', lw = 0.75)
+    plt.plot(xs, splines['n'](xs)*line_e, zorder=0, color='C1', ls = '--', lw = 0.75)
+    plt.errorbar(z_list, e_trapping[0]*line_e, xerr = z_err, yerr=e_trapping[1]*line_e, fmt=".", label="electron signal", color='C0')
+    plt.errorbar(z_list, h_trapping[0]*line_e, xerr = z_err, yerr=h_trapping[1]*line_e, fmt=".", label="hole signal", color='C1')
     plt.axhline(line_e, ls='--', color='C2')
     # plt.legend(loc=4)
     plt.xlabel("Detector Depth (cm)"); plt.ylabel("Centroid Energy (keV)")
@@ -546,75 +664,35 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
         
         ax = axes[0][i]
         energies = df['energy_'+side].values
-        # temp_emin = stats.mode(np.floor(energies))[0] - 20.
-        # temp_emax = stats.mode(np.floor(energies))[0] + 12.
-        
-        # emin_list.append(temp_emin)
-        # emax_list.append(temp_emax)
 
-        # emask = (energies < temp_emax) * (energies > temp_emin)
-        # energies = energies[emask]
-        hist,binedges,_ = ax.hist(energies, histtype="step", bins=100, label="Uncorrected " + carrier + " signal")
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+20.), color=color, label="Uncorrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        # c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
-
-        # m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-        # m.limits["x0"] = (temp_emin, temp_emax)
-        # m.limits["BoverA", "sigma_gauss"] = (0, None)
-        # m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
-        # m.migrad()
-        # m.hesse()
         fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
         fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
         fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
         fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
         print('FWHM = ' + str(round(fwhm, 2)))
         print('FWTM = ' + str(round(fwtm, 2)))
-        # print(m.params)
 
-        # BoverA, x0, sigma_gauss = m.values[:3]
-        # A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
-        #     quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
-        # B = A*BoverA
-        # C = B*global_CoverB
-
-        # ax.plot(bin_centers,A*gauss_plus_tail(bin_centers, BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio),color= color, lw=0.5)
-        # ax.plot(bin_centers,A*gaussian(bin_centers, x0, sigma_gauss),color= color, ls='--', lw=0.5)
-        # ax.plot(bin_centers, B*exp_tail(bin_centers, x0, gamma=global_gamma)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        # ax.plot(bin_centers, C*linear_tail(bin_centers, x0, global_D)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        # ax.axvline(x0, ls='--', color='C3')
         ax.axvline(line_e, ls='--', color='C2')
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
-        ax.set_ylim(bottom=10., top = 2.0*np.max(hist))
-        ax.legend(loc=2, fontsize=12)
+        ax.set_ylim(bottom=0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.legend(loc=2)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
+
 
         ### Correct the measured energies according to the CCE spline
-        energies = df["energy_"+side].values * line_e/splines[side](df['z'].values)
+        energies = df["energy_"+side].values/splines[side](df['z'].values)
         df['depth_corrected_energy_'+side] = energies
 
         ax = axes[1][i]
-        # temp_emin = stats.mode(np.floor(energies))[0] - 20.
-        # temp_emax = stats.mode(np.floor(energies))[0] + 12.
-        
-        # emin_list.append(temp_emin)
-        # emax_list.append(temp_emax)
-
-        # emask = (energies < temp_emax) * (energies > temp_emin)
-        # energies = energies[emask]
-        hist,binedges,_ = ax.hist(energies, histtype="step", bins=100, label="Corrected " + carrier + " signal")
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+20.), color=color, label="Corrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        # c = cost.UnbinnedNLL(energies, gauss_plus_tail_pdf)
-
-        # m = Minuit(c, BoverA=0.5, x0=stats.mode(np.floor(energies))[0], sigma_gauss=1.2, gamma=global_gamma, CoverB=global_CoverB, D=global_D, sigma_ratio=global_sigma_ratio, Emin=temp_emin, Emax=temp_emax)
-        # m.limits["x0"] = (temp_emin, temp_emax)
-        # m.limits["BoverA", "sigma_gauss"] = (0, None)
-        # m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
-        # m.migrad()
-        # m.hesse()
         
         fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
         fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
@@ -622,29 +700,17 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
         fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
         print('FWHM = ' + str(round(fwhm, 2)))
         print('FWTM = ' + str(round(fwtm, 2)))
-        # print(m.params)
 
-        # BoverA, x0, sigma_gauss = m.values[:3]
-        # A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
-        #     quad(gauss_plus_tail, np.min(energies), np.max(energies), args = (BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio))[0]
-        # B = A*BoverA
-        # C = B*global_CoverB
-
-        # ax.plot(bin_centers,A*gauss_plus_tail(bin_centers, BoverA, x0, sigma_gauss, global_gamma, global_CoverB, global_D, global_sigma_ratio),color= color, lw=0.5)
-        # ax.plot(bin_centers,A*gaussian(bin_centers, x0, sigma_gauss),color= color, ls='--', lw=0.5)
-        # ax.plot(bin_centers, B*exp_tail(bin_centers, x0, gamma=global_gamma)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        # ax.plot(bin_centers, C*linear_tail(bin_centers, x0, global_D)*shelf(bin_centers, x0, sigma_gauss*global_sigma_ratio),color= color, ls='--', lw=0.5)
-        # ax.axvline(x0, ls='--', color='C3')
         ax.axvline(line_e, ls='--', color='C2')
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
-        ax.set_ylim(bottom=10., top = 2.0*np.max(hist))
-        ax.legend(loc=2, fontsize=12)
-        # ax.text(
+        ax.set_ylim(bottom=0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.legend(loc=2)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
 
-    # axes[1][0].set_xlim(np.min(emin_list), np.max(emax_list))
-    # axes[1][1].set_xlim(np.min(emin_list), np.max(emax_list))
+
     axes[1][0].set_xlabel("Energy (keV)")
     axes[1][1].set_xlabel("Energy (keV)")
     plt.tight_layout()
@@ -654,12 +720,97 @@ def depth_correction(df, z_list, e_trapping, h_trapping, plot_dir="/home/cosilab
 
     return df
 
+def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs137'):
+    ### Correct measured energy on an event-by-event basis using the charge collection efficiency parameters.
+    ### Return the dataset with corrected energies in new columns.
+    if source not in source_dict:
+        print('Source not recognized. Must be one of the following: Am241, Cs137, Ba133, Co57')
+    line_e = source_dict[source]
 
-def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs-137', trim = 0.0):
+    sim_dCCE = np.loadtxt(sim_dCCE_path, delimiter=',').T
+
+    e_cce = UnivariateSpline(sim_dCCE[0], ae*(1.-b*sim_dCCE[1][::-1])*(1.-c*sim_dCCE[2][::-1]))
+    h_cce = UnivariateSpline(sim_dCCE[0], ah*(1.-b*sim_dCCE[3][::-1])*(1.-c*sim_dCCE[4][::-1]))
+
+    cces = {'p': e_cce, 'n': h_cce}
+
+    fig, axes = plt.subplots(figsize = (18, 15), nrows=2, ncols=2, sharex=True, sharey=False, gridspec_kw={'hspace':0, 'wspace':0})
+
+    for side in cces:
+
+        i=0
+        if side=='p':
+            carrier='electron'
+        else:
+            carrier='hole'
+            i=1
+
+        color = 'C'+str(i)
+        
+        ax = axes[0][i]
+        energies = df['energy_'+side].values
+
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Uncorrected " + carrier + " signal", range=(line_e-25., line_e+20.), color=color)
+        bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
+
+        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
+        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
+        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
+        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
+        print('FWHM = ' + str(round(fwhm, 2)))
+        print('FWTM = ' + str(round(fwtm, 2)))
+
+        ax.axvline(line_e, ls='--', color='C2')
+        if i==0:
+            ax.set_ylabel("Counts")
+        ax.set_yscale('log')
+        ax.set_ylim(bottom = 0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.legend(loc=2)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
+
+        ### Correct the measured energies according to the CCE spline
+        energies = df["energy_"+side].values/cces[side](df['z'].values)
+        df['depth_corrected_energy_'+side] = energies
+
+        ax = axes[1][i]
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Corrected " + carrier + " signal", range=(line_e-25., line_e+20.), color=color)
+        bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
+
+        
+        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
+        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
+        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
+        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
+        print('FWHM = ' + str(round(fwhm, 2)))
+        print('FWTM = ' + str(round(fwtm, 2)))
+
+        ax.axvline(line_e, ls='--', color='C2')
+        if i==0:
+            ax.set_ylabel("Counts")
+        ax.set_yscale('log')
+        ax.set_ylim(bottom = 0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.legend(loc=2)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
+
+    axes[1][0].set_xlabel("Energy (keV)")
+    axes[1][1].set_xlabel("Energy (keV)")
+    plt.tight_layout()
+
+    plt.savefig(plot_dir + 'CCEdepth_corrected_spectra_' + plot_suffix + '.pdf')
+    plt.close()
+
+    return df
+
+
+
+
+def fit_CCE(z_bins, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosilab/CalibrationData/figures/", plot_suffix='', source='Cs137', trim_index=0):
     ### Fit the measured depth plots to simulated CCE curves in order to estimate trapping lengths.
 
     if source not in source_dict:
-        print('Source not recognized. Must be one of the following: Am-241, Cs-137, Ba-133, Co-57')
+        print('Source not recognized. Must be one of the following: Am241, Cs137, Ba133, Co57')
     line_e = source_dict[source]
 
     sim_dCCE = np.loadtxt(sim_dCCE_path, delimiter=',').T
@@ -673,16 +824,11 @@ def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
         CCE = ah*(1.-b*sim_dCCE[3][::-1])*(1.-c*sim_dCCE[4][::-1])
         return UnivariateSpline(sim_dCCE[0], CCE)(z)
 
-    trim_index = 0
-    while (z_list[trim_index] - np.min(z_list)) <= trim:
-        trim_index += 1
+    z_list = (z_bins[:-1] + z_bins[1:])/2.
+    z_err = (z_bins[1:]-z_bins[:-1])/2.
 
-    trim_index -= 1
-
-    c = cost.LeastSquares(z_list[trim_index:len(z_list)-trim_index], e_trapping[0][trim_index:len(z_list)-trim_index], \
-        e_trapping[1][trim_index:len(z_list)-trim_index], e_depth_plot) + \
-    cost.LeastSquares(z_list[trim_index:len(z_list)-trim_index], h_trapping[0][trim_index:len(z_list)-trim_index], \
-        h_trapping[1][trim_index:len(z_list)-trim_index], h_depth_plot)
+    c = cost.LeastSquares(z_list, e_trapping[0], e_trapping[1], e_depth_plot) + \
+    cost.LeastSquares(z_list, h_trapping[0], h_trapping[1], h_depth_plot)
 
     m = Minuit(c, ae=np.max(e_trapping[0]), ah=np.max(h_trapping[0]), b=10.0, c=10.)
     m.limits["b", "c"] = (0, None)
@@ -692,11 +838,16 @@ def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
 
     plt.figure()
 
-    plt.errorbar(z_list, e_trapping[0], xerr = (z_list[1]-z_list[0])/2., yerr=e_trapping[1], fmt=" ", label="electron signal")
-    plt.errorbar(z_list, h_trapping[0], xerr = (z_list[1]-z_list[0])/2., yerr=h_trapping[1], fmt=" ", label="hole signal")
+    plt.errorbar(z_list[trim_index:-trim_index], e_trapping[0][trim_index:-trim_index]*line_e, xerr = z_err[trim_index:-trim_index], yerr=e_trapping[1][trim_index:-trim_index]*line_e, fmt=".", label="electron signal")
+    plt.errorbar(z_list[trim_index:-trim_index], h_trapping[0][trim_index:-trim_index]*line_e, xerr = z_err[trim_index:-trim_index], yerr=h_trapping[1][trim_index:-trim_index]*line_e, fmt=".", label="hole signal")
+    plt.errorbar(z_list[:trim_index], e_trapping[0][:trim_index]*line_e, xerr = z_err[:trim_index], yerr=e_trapping[1][:trim_index]*line_e, fmt="x", color='C0')
+    plt.errorbar(z_list[:trim_index], h_trapping[0][:trim_index]*line_e, xerr = z_err[:trim_index], yerr=h_trapping[1][:trim_index]*line_e, fmt="x", color='C1')
+    plt.errorbar(z_list[-trim_index:], e_trapping[0][-trim_index:]*line_e, xerr = z_err[-trim_index:], yerr=e_trapping[1][-trim_index:]*line_e, fmt="x", color='C0')
+    plt.errorbar(z_list[-trim_index:], h_trapping[0][-trim_index:]*line_e, xerr = z_err[-trim_index:], yerr=h_trapping[1][-trim_index:]*line_e, fmt="x", color='C1')
 
-    plt.plot(z_list, e_depth_plot(z_list, *m.values['ae', 'b', 'c']), color='C0', zorder=0, lw=0.9)
-    plt.plot(z_list, h_depth_plot(z_list, *m.values['ah', 'b', 'c']), color='C1', zorder=0, lw=0.9)
+
+    plt.plot(sim_dCCE[0], e_depth_plot(sim_dCCE[0], *m.values['ae', 'b', 'c'])*line_e, color='C0', zorder=0, lw=0.9)
+    plt.plot(sim_dCCE[0], h_depth_plot(sim_dCCE[0], *m.values['ah', 'b', 'c'])*line_e, color='C1', zorder=0, lw=0.9)
 
     plt.axhline(line_e, ls='--', color='C2', zorder=0)
     plt.legend()
@@ -707,11 +858,15 @@ def fit_CCE(z_list, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
 
     plt.figure()
 
-    plt.errorbar(z_list, e_trapping[0]/m.values['ae'], xerr = (z_list[1]-z_list[0])/2., yerr=e_trapping[1]/m.values['ae'], fmt=".", label="electron signal")
-    plt.errorbar(z_list, h_trapping[0]/m.values['ah'], xerr = (z_list[1]-z_list[0])/2., yerr=h_trapping[1]/m.values['ah'], fmt=".", label="hole signal")
+    plt.errorbar(z_list[trim_index:-trim_index], e_trapping[0][trim_index:-trim_index]/m.values['ae'], xerr = z_err[trim_index:-trim_index], yerr=e_trapping[1][trim_index:-trim_index]/m.values['ae'], fmt=".", label="electron signal")
+    plt.errorbar(z_list[trim_index:-trim_index], h_trapping[0][trim_index:-trim_index]/m.values['ah'], xerr = z_err[trim_index:-trim_index], yerr=h_trapping[1][trim_index:-trim_index]/m.values['ah'], fmt=".", label="hole signal")
+    plt.errorbar(z_list[:trim_index], e_trapping[0][:trim_index]/m.values['ae'], xerr = z_err[:trim_index], yerr=e_trapping[1][:trim_index]/m.values['ae'], fmt="x", color='C0')
+    plt.errorbar(z_list[:trim_index], h_trapping[0][:trim_index]/m.values['ah'], xerr = z_err[:trim_index], yerr=h_trapping[1][:trim_index]/m.values['ah'], fmt="x", color='C1')
+    plt.errorbar(z_list[-trim_index:], e_trapping[0][-trim_index:]/m.values['ae'], xerr = z_err[-trim_index:], yerr=e_trapping[1][-trim_index:]/m.values['ae'], fmt="x", color='C0')
+    plt.errorbar(z_list[-trim_index:], h_trapping[0][-trim_index:]/m.values['ah'], xerr = z_err[-trim_index:], yerr=h_trapping[1][-trim_index:]/m.values['ah'], fmt="x", color='C1')
 
-    plt.plot(z_list, e_depth_plot(z_list, *m.values['ae', 'b', 'c'])/m.values['ae'], color='C0', zorder=0, lw=0.9)
-    plt.plot(z_list, h_depth_plot(z_list, *m.values['ah', 'b', 'c'])/m.values['ah'], color='C1', zorder=0, lw=0.9)
+    plt.plot(sim_dCCE[0], e_depth_plot(sim_dCCE[0], *m.values['ae', 'b', 'c'])/m.values['ae'], color='C0', zorder=0, lw=0.9)
+    plt.plot(sim_dCCE[0], h_depth_plot(sim_dCCE[0], *m.values['ah', 'b', 'c'])/m.values['ah'], color='C1', zorder=0, lw=0.9)
 
     plt.legend()
     plt.xlabel("Detector Depth (cm)")

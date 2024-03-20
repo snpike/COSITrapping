@@ -56,7 +56,7 @@ def writeCTD(CTD, outdir, file_prefix):
             bin_centers = (bin_edges[:-1] + bin_edges[1:])/2
             np.array([bin_centers, hist]).tofile(outdir+'/datafiles/'+file_prefix+'_p'+str(p)+'_n'+str(n)+'.csv', sep=',')
 
-def plotCTD(CTD, outdir, file_prefix, fit_CTD):
+def plotCTD(CTD, outdir, file_prefix, fit_CTD, side):
     print('plotting CTDs...')
     
     CTD_params = [[[0.,0.,0.,0.] for i in range(37)]for i in range(37)]
@@ -66,16 +66,18 @@ def plotCTD(CTD, outdir, file_prefix, fit_CTD):
             hist, bin_edges, _ = plt.hist(CTD[p][n], bins=np.linspace(-350,350,num=100))
             bin_centers = (bin_edges[:-1] + bin_edges[1:])/2
             if fit_CTD:
+                fit_mask = bin_centers < 0.
                 p0 = [500., -200., 30.]
-                if '_DC_' in file_prefix:
+                if side=='DC':
                     p0 = [500., 125., 30.]
+                    fit_mask = bin_centers > 0.
                 try:
                     if np.sum(hist) > 10.:
-                        popt, pcov = curve_fit(gauss, bin_centers, hist, p0=p0)
+                        popt, pcov = curve_fit(gauss, bin_centers[fit_mask], hist[fit_mask], p0=p0)
                         CTD_params[p][n] = np.concatenate([popt[1:], np.sqrt(np.diag(pcov))[1:]])
                         plt.text(-100, np.max(hist)*0.75, 'Gaussian Peak = ' + str(round(popt[1],2)) + ' +/- ' + str(round(np.sqrt(np.diag(pcov))[1], 2)) + ' ns\n' \
                             + 'Sigma = ' + str(round(popt[2],2)) + ' +/- ' + str(round(np.sqrt(np.diag(pcov))[2], 2)) + ' ns')
-                        plt.plot(np.linspace(-350, 350, num=500), gauss(np.linspace(-350, 350, num=500), *popt), color='red')
+                        plt.plot(bin_centers[fit_mask], gauss(bin_centers[fit_mask], *popt), color='red')
                     else:
                         print('Not enough counts to fit p' +str(p) + ', n' +str(n))
                 except:
@@ -131,14 +133,15 @@ def main(argv):
     outdir=''
     emin = 0.0
     emax = 2000.
-    opts, args = getopt.getopt(argv, "hi:o:f", ['infile=','emin=','emax=','outdir='])
+    opts, args = getopt.getopt(argv, "hi:o:s:f", ['infile=','emin=','emax=','outdir=', 'side='])
     filelist = []
     default_outdir = True
     file_prefix = ''
     fit_CTD=False
+    side = None
     for opt, arg in opts:
         if opt == '-h':
-            print('python dat2CTD.py -i <inputfile> -o <outputdir> --emin <emin> --emax <emax> -f')
+            print('python dat2CTD.py -i <inputfile> -o <outputdir> --emin <emin> --emax <emax> -s [AC, DC] -f')
         elif opt in ('-i', '--infile'):
             filelist.append(arg)
         elif opt in ('-o', '--outdir'):
@@ -150,8 +153,15 @@ def main(argv):
             emax=float(arg)
         elif opt in ('-f', '--fit'):
             fit_CTD = True
+        elif opt in ('-s', '--side'):
+            if arg!='AC' and arg!='DC':
+                assert False, "incorrect value for side. Must be AC or DC"
+            else:
+                side = arg
         else:
             assert False, "incorrect option"
+    if side is None:
+        assert False, "Please indicate the irradiated side of the detector."
     if default_outdir:
         for file in filelist:
             file_prefix = file_prefix + file.split('/')[-1].split('.')[0]
@@ -163,7 +173,7 @@ def main(argv):
         os.mkdir(outdir+'/datafiles')
     CTD = dat2CTD(filelist, emin, emax)
     writeCTD(CTD, outdir, file_prefix)
-    counts = plotCTD(CTD, outdir, file_prefix, fit_CTD)
+    counts = plotCTD(CTD, outdir, file_prefix, fit_CTD, side)
     with open(outdir + '/README.txt', 'w') as f:
         f.write('Input files:\n')
         for infile in filelist:
