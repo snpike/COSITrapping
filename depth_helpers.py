@@ -176,8 +176,8 @@ class DepthCalibrator_Am241:
             pix_offset = []
             for p in range(37):
                 for n in range(37):
-                    ### p=AC=y strips I'm pretty sure...
-                    pix_code.append(int(110000 + 100*(n+1) + p+1))
+                    ### p=AC=y strips I'm pretty sure... (WRONG! n=AC=y)
+                    pix_code.append(int(110000 + 100*(p+1) + n+1))
                     pix_stretch.append(self.slope[p][n])
                     pix_offset.append(self.intercept[p][n])
             pix_code = np.array(pix_code)
@@ -652,7 +652,7 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
     plt.savefig(plot_dir + 'e_hole_trapping_' + plot_suffix + '.pdf')
     plt.close()
 
-    fig, axes = plt.subplots(figsize = (18, 15), nrows=2, ncols=2, sharex=True, sharey=False, gridspec_kw={'hspace':0, 'wspace':0})
+    fig, axes = plt.subplots(figsize = (12, 9), nrows=2, ncols=2, sharex=True, sharey=False, gridspec_kw={'hspace':0, 'wspace':0})
 
     for i, side in enumerate(splines):
         if side=='p':
@@ -660,12 +660,12 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         else:
             carrier='hole'
         
-        color = 'C'+str(i)
+        color = 'C'+str(i+2)
         
         ax = axes[0][i]
         energies = df['energy_'+side].values
 
-        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+20.), color=color, label="Uncorrected " + carrier + " signal")
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+10.), color=color, label="Uncorrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
         fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
@@ -675,14 +675,14 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         print('FWHM = ' + str(round(fwhm, 2)))
         print('FWTM = ' + str(round(fwtm, 2)))
 
-        ax.axvline(line_e, ls='--', color='C2')
+        ax.axvline(line_e, ls='--', color='red')
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
-        ax.set_ylim(bottom=0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
-        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
 
 
         ### Correct the measured energies according to the CCE spline
@@ -690,7 +690,7 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         df['depth_corrected_energy_'+side] = energies
 
         ax = axes[1][i]
-        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+20.), color=color, label="Corrected " + carrier + " signal")
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+10.), color=color, label="Corrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
         
@@ -705,10 +705,10 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
-        ax.set_ylim(bottom=0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
-        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
 
 
     axes[1][0].set_xlabel("Energy (keV)")
@@ -734,7 +734,7 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
 
     cces = {'p': e_cce, 'n': h_cce}
 
-    fig, axes = plt.subplots(figsize = (18, 15), nrows=2, ncols=2, sharex=True, sharey=False, gridspec_kw={'hspace':0, 'wspace':0})
+    fig, axes = plt.subplots(figsize = (12, 9), nrows=2, ncols=2, sharex=True, sharey=False, gridspec_kw={'hspace':0, 'wspace':0})
 
     for side in cces:
 
@@ -745,12 +745,12 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
             carrier='hole'
             i=1
 
-        color = 'C'+str(i)
+        color = 'C'+str(i+2)
         
         ax = axes[0][i]
         energies = df['energy_'+side].values
 
-        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Uncorrected " + carrier + " signal", range=(line_e-25., line_e+20.), color=color)
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Uncorrected " + carrier + " signal", range=(line_e-25., line_e+10.), color=color)
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
         fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
@@ -760,21 +760,21 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
         print('FWHM = ' + str(round(fwhm, 2)))
         print('FWTM = ' + str(round(fwtm, 2)))
 
-        ax.axvline(line_e, ls='--', color='C2')
+        ax.axvline(line_e, ls='--', color='red')
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
-        ax.set_ylim(bottom = 0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
-        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
+        ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
 
         ### Correct the measured energies according to the CCE spline
         energies = df["energy_"+side].values/cces[side](df['z'].values)
         df['depth_corrected_energy_'+side] = energies
 
         ax = axes[1][i]
-        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Corrected " + carrier + " signal", range=(line_e-25., line_e+20.), color=color)
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Corrected " + carrier + " signal", range=(line_e-25., line_e+10.), color=color)
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
         
@@ -785,14 +785,14 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
         print('FWHM = ' + str(round(fwhm, 2)))
         print('FWTM = ' + str(round(fwtm, 2)))
 
-        ax.axvline(line_e, ls='--', color='C2')
+        ax.axvline(line_e, ls='--', color='red')
         if i==0:
             ax.set_ylabel("Counts")
         ax.set_yscale('log')
-        ax.set_ylim(bottom = 0.5*np.min(hist), top = 2.0*np.max(hist))
+        ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 2)), transform = ax.transAxes)
-        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 2)), transform = ax.transAxes)
+        ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
 
     axes[1][0].set_xlabel("Energy (keV)")
     axes[1][1].set_xlabel("Energy (keV)")
