@@ -729,6 +729,7 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
 
     sim_dCCE = np.loadtxt(sim_dCCE_path, delimiter=',').T
 
+    ### TODO: double check why I flipped the y values. Presumably p and n are flipped compared to simulations.
     e_cce = UnivariateSpline(sim_dCCE[0], ae*(1.-b*sim_dCCE[1][::-1])*(1.-c*sim_dCCE[2][::-1]))
     h_cce = UnivariateSpline(sim_dCCE[0], ah*(1.-b*sim_dCCE[3][::-1])*(1.-c*sim_dCCE[4][::-1]))
 

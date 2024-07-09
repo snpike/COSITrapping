@@ -1,0 +1,4 @@
+This directory contains scripts for simulating charge motion in Ge strip detectors. 
+There are 2 types of scripts: charge sharing (across strips), and charge transport, which should give readout timing information.
+The original code is in IDL (.pro files) and was written by Steven Boggs.
+Python scripts were adapted from the IDL code by Sean Pike, with help from ChatGPT.
