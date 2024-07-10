@@ -56,6 +56,24 @@ def gauss_plus_tail_pdf(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_rati
     return gauss_plus_tail(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio)/\
     quad(gauss_plus_tail, Emin, Emax, args=(BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio))[0]
 
+def get_FWHM_FWTM(x, y, C=0.):
+    spline = UnivariateSpline(x, y-C, k=4)
+    spline_roots = spline.derivative().roots()
+    # print(spline_roots)
+    spline_max = spline_roots[np.argmin(np.abs(spline(spline_roots) - np.max(y)))]
+    # print(spline_max)
+    fwhm_spline = UnivariateSpline(x, y-0.5*spline(spline_max))
+    fwtm_spline = UnivariateSpline(x, y-0.1*spline(spline_max))
+    # plt.figure()
+    # plt.plot(x, y)
+    # plt.plot(x, spline(x))
+    # plt.show()
+    # plt.close()
+    fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
+    fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
+    return fwhm, fwtm
+
+
 
 class DepthCalibrator_Am241:
     def __init__(self, AC_param_file, DC_param_file, AC_sim_ev, DC_sim_ev, sim_file, savefile=None):
