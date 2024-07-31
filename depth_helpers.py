@@ -57,21 +57,25 @@ def gauss_plus_tail_pdf(x, BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_rati
     quad(gauss_plus_tail, Emin, Emax, args=(BoverA, x0, sigma_gauss, gamma, CoverB, D, sigma_ratio))[0]
 
 def get_FWHM_FWTM(x, y, C=0.):
+    ### Function for determining the FWHM and FWTM of count histograms. 
+    ### Also returns an estimate for the 1-sigma error bars.
     spline = UnivariateSpline(x, y-C, k=4)
     spline_roots = spline.derivative().roots()
     # print(spline_roots)
     spline_max = spline_roots[np.argmin(np.abs(spline(spline_roots) - np.max(y)))]
     # print(spline_max)
-    fwhm_spline = UnivariateSpline(x, y-0.5*spline(spline_max))
-    fwtm_spline = UnivariateSpline(x, y-0.1*spline(spline_max))
+    fwhm_roots = UnivariateSpline(x, y-0.5*spline(spline_max)).roots()
+    fwtm_roots = UnivariateSpline(x, y-0.1*spline(spline_max)).roots()
     # plt.figure()
     # plt.plot(x, y)
     # plt.plot(x, spline(x))
     # plt.show()
     # plt.close()
-    fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
-    fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
-    return fwhm, fwtm
+    fwhm = fwhm_roots[-1]-fwhm_roots[0]
+    fwtm = fwtm_roots[-1]-fwtm_roots[0]
+    fwhm_err = fwhm/np.sqrt(2.*np.sum(y))
+    fwtm_err = fwtm/np.sqrt(2.*np.sum(y))
+    return fwhm, fwtm, fwhm_err, fwtm_err
 
 
 
@@ -686,12 +690,9 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+10.), color=color, label="Uncorrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
-        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
-        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
-        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
-        print('FWHM = ' + str(round(fwhm, 2)))
-        print('FWTM = ' + str(round(fwtm, 2)))
+        fwhm, fwtm, fwhm_err, fwtm_err = get_FWHM_FWTM(bin_centers, hist)
+        print('FWHM = ' + str(round(fwhm, 3)) + '+/-' + str(round(fwhm_err, 3)))
+        print('FWTM = ' + str(round(fwtm, 3)) + '+/-' + str(round(fwtm_err, 3)))
 
         ax.axvline(line_e, ls='--', color='red')
         if i==0:
@@ -699,8 +700,10 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         ax.set_yscale('log')
         ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
-        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)), transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)), transform = ax.transAxes)
 
 
         ### Correct the measured energies according to the CCE spline
@@ -711,13 +714,9 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, range=(line_e-25., line_e+10.), color=color, label="Corrected " + carrier + " signal")
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        
-        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
-        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
-        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
-        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
-        print('FWHM = ' + str(round(fwhm, 2)))
-        print('FWTM = ' + str(round(fwtm, 2)))
+        fwhm, fwtm, fwhm_err, fwtm_err = get_FWHM_FWTM(bin_centers, hist)
+        print('FWHM = ' + str(round(fwhm, 3)) + '+/-' + str(round(fwhm_err, 3)))
+        print('FWTM = ' + str(round(fwtm, 3)) + '+/-' + str(round(fwtm_err, 3)))
 
         ax.axvline(line_e, ls='--', color='C2')
         if i==0:
@@ -725,8 +724,11 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         ax.set_yscale('log')
         ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
-        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.1, 0.8, 'FWHM = ' + str(round(fwhm, 1)), transform = ax.transAxes)
+        ax.text(0.1, 0.75, 'FWTM = ' + str(round(fwtm, 1)), transform = ax.transAxes)
+
 
 
     axes[1][0].set_xlabel("Energy (keV)")
@@ -772,12 +774,14 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
         hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Uncorrected " + carrier + " signal", range=(line_e-25., line_e+10.), color=color)
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
-        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
-        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
-        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
-        print('FWHM = ' + str(round(fwhm, 2)))
-        print('FWTM = ' + str(round(fwtm, 2)))
+        # fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
+        # fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
+        # fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
+        # fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
+
+        fwhm, fwtm, fwhm_err, fwtm_err = get_FWHM_FWTM(bin_centers, hist)
+        print('FWHM = ' + str(round(fwhm, 3)) + '+/-' + str(round(fwhm_err, 3)))
+        print('FWTM = ' + str(round(fwtm, 3)) + '+/-' + str(round(fwtm_err, 3)))
 
         ax.axvline(line_e, ls='--', color='red')
         if i==0:
@@ -785,8 +789,11 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
         ax.set_yscale('log')
         ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
-        ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)), transform = ax.transAxes)
+        ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)), transform = ax.transAxes)
+
 
         ### Correct the measured energies according to the CCE spline
         energies = df["energy_"+side].values/cces[side](df['z'].values)
@@ -796,13 +803,9 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
         hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Corrected " + carrier + " signal", range=(line_e-25., line_e+10.), color=color)
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
-        
-        fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
-        fwtm_spline = UnivariateSpline(bin_centers, hist-0.1*np.max(hist))
-        fwhm = fwhm_spline.roots()[-1]-fwhm_spline.roots()[0]
-        fwtm = fwtm_spline.roots()[-1]-fwtm_spline.roots()[0]
-        print('FWHM = ' + str(round(fwhm, 2)))
-        print('FWTM = ' + str(round(fwtm, 2)))
+        fwhm, fwtm, fwhm_err, fwtm_err = get_FWHM_FWTM(bin_centers, hist)
+        print('FWHM = ' + str(round(fwhm, 3)) + '+/-' + str(round(fwhm_err, 3)))
+        print('FWTM = ' + str(round(fwtm, 3)) + '+/-' + str(round(fwtm_err, 3)))
 
         ax.axvline(line_e, ls='--', color='red')
         if i==0:
@@ -810,8 +813,11 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
         ax.set_yscale('log')
         ax.set_ylim(bottom = np.max(hist)/100., top = 3.9*np.max(hist))
         ax.legend(loc=2)
-        ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)) + ' keV', transform = ax.transAxes)
-        ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        # ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)) + r'$\pm$' + str(round(fwhm_err, 1)) + ' keV', transform = ax.transAxes)
+        ax.text(0.05, 0.78, 'FWHM = ' + str(round(fwhm, 1)), transform = ax.transAxes)
+        ax.text(0.05, 0.72, 'FWTM = ' + str(round(fwtm, 1)), transform = ax.transAxes)
+
 
     axes[1][0].set_xlabel("Energy (keV)")
     axes[1][1].set_xlabel("Energy (keV)")
@@ -849,7 +855,7 @@ def fit_CCE(z_bins, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
     c = cost.LeastSquares(z_list, e_trapping[0], e_trapping[1], e_depth_plot) + \
     cost.LeastSquares(z_list, h_trapping[0], h_trapping[1], h_depth_plot)
 
-    m = Minuit(c, ae=np.max(e_trapping[0]), ah=np.max(h_trapping[0]), b=10.0, c=10.)
+    m = Minuit(c, ae=np.max(e_trapping[0]), ah=np.max(h_trapping[0]), b=1.0, c=9.)
     m.limits["b", "c"] = (0, None)
     m.migrad()
     m.hesse()
