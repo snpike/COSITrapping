@@ -576,9 +576,9 @@ def make_depthplot(df, plot_suffix, z_bins, plot_dir="/home/cosilab/CalibrationD
         temp_x0_err = []
         for j, side in enumerate(['p', 'n']):
             if side=='p':
-                carrier='electron'
+                carrier='HV'
             else:
-                carrier='hole'
+                carrier='LV'
 
             ax = axes[i*2][j]
             resid_ax = axes[(i*2)+1][j]            
@@ -665,8 +665,8 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
     xs = np.linspace(z_bins[0], z_bins[-1])
     plt.plot(xs, splines['p'](xs)*line_e, zorder=0, color='C0', ls = '--', lw = 0.75)
     plt.plot(xs, splines['n'](xs)*line_e, zorder=0, color='C1', ls = '--', lw = 0.75)
-    plt.errorbar(z_list, e_trapping[0]*line_e, xerr = z_err, yerr=e_trapping[1]*line_e, fmt=".", label="electron signal", color='C0')
-    plt.errorbar(z_list, h_trapping[0]*line_e, xerr = z_err, yerr=h_trapping[1]*line_e, fmt=".", label="hole signal", color='C1')
+    plt.errorbar(z_list, e_trapping[0]*line_e, xerr = z_err, yerr=e_trapping[1]*line_e, fmt=".", label="HV signal", color='C0')
+    plt.errorbar(z_list, h_trapping[0]*line_e, xerr = z_err, yerr=h_trapping[1]*line_e, fmt=".", label="LV signal", color='C1')
     plt.axhline(line_e, ls='--', color='C2')
     # plt.legend(loc=4)
     plt.xlabel("Detector Depth (cm)"); plt.ylabel("Centroid Energy (keV)")
@@ -678,9 +678,9 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
 
     for i, side in enumerate(splines):
         if side=='p':
-            carrier='electron'
+            carrier='HV'
         else:
-            carrier='hole'
+            carrier='LV'
         
         color = 'C'+str(i+2)
         
@@ -761,9 +761,9 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
 
         i=0
         if side=='p':
-            carrier='electron'
+            carrier='HV'
         else:
-            carrier='hole'
+            carrier='LV'
             i=1
 
         color = 'C'+str(i+2)
@@ -863,8 +863,8 @@ def fit_CCE(z_bins, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
 
     plt.figure()
 
-    plt.errorbar(z_list[trim_index:-trim_index], e_trapping[0][trim_index:-trim_index]*line_e, xerr = z_err[trim_index:-trim_index], yerr=e_trapping[1][trim_index:-trim_index]*line_e, fmt=".", label="electron signal")
-    plt.errorbar(z_list[trim_index:-trim_index], h_trapping[0][trim_index:-trim_index]*line_e, xerr = z_err[trim_index:-trim_index], yerr=h_trapping[1][trim_index:-trim_index]*line_e, fmt=".", label="hole signal")
+    plt.errorbar(z_list[trim_index:-trim_index], e_trapping[0][trim_index:-trim_index]*line_e, xerr = z_err[trim_index:-trim_index], yerr=e_trapping[1][trim_index:-trim_index]*line_e, fmt=".", label="HV signal")
+    plt.errorbar(z_list[trim_index:-trim_index], h_trapping[0][trim_index:-trim_index]*line_e, xerr = z_err[trim_index:-trim_index], yerr=h_trapping[1][trim_index:-trim_index]*line_e, fmt=".", label="LV signal")
     plt.errorbar(z_list[:trim_index], e_trapping[0][:trim_index]*line_e, xerr = z_err[:trim_index], yerr=e_trapping[1][:trim_index]*line_e, fmt="x", color='C0')
     plt.errorbar(z_list[:trim_index], h_trapping[0][:trim_index]*line_e, xerr = z_err[:trim_index], yerr=h_trapping[1][:trim_index]*line_e, fmt="x", color='C1')
     plt.errorbar(z_list[-trim_index:], e_trapping[0][-trim_index:]*line_e, xerr = z_err[-trim_index:], yerr=e_trapping[1][-trim_index:]*line_e, fmt="x", color='C0')
@@ -883,8 +883,8 @@ def fit_CCE(z_bins, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
 
     plt.figure()
 
-    plt.errorbar(z_list[trim_index:-trim_index], e_trapping[0][trim_index:-trim_index]/m.values['ae'], xerr = z_err[trim_index:-trim_index], yerr=e_trapping[1][trim_index:-trim_index]/m.values['ae'], fmt=".", label="electron signal")
-    plt.errorbar(z_list[trim_index:-trim_index], h_trapping[0][trim_index:-trim_index]/m.values['ah'], xerr = z_err[trim_index:-trim_index], yerr=h_trapping[1][trim_index:-trim_index]/m.values['ah'], fmt=".", label="hole signal")
+    plt.errorbar(z_list[trim_index:-trim_index], e_trapping[0][trim_index:-trim_index]/m.values['ae'], xerr = z_err[trim_index:-trim_index], yerr=e_trapping[1][trim_index:-trim_index]/m.values['ae'], fmt=".", label="HV signal")
+    plt.errorbar(z_list[trim_index:-trim_index], h_trapping[0][trim_index:-trim_index]/m.values['ah'], xerr = z_err[trim_index:-trim_index], yerr=h_trapping[1][trim_index:-trim_index]/m.values['ah'], fmt=".", label="LV signal")
     plt.errorbar(z_list[:trim_index], e_trapping[0][:trim_index]/m.values['ae'], xerr = z_err[:trim_index], yerr=e_trapping[1][:trim_index]/m.values['ae'], fmt="x", color='C0')
     plt.errorbar(z_list[:trim_index], h_trapping[0][:trim_index]/m.values['ah'], xerr = z_err[:trim_index], yerr=h_trapping[1][:trim_index]/m.values['ah'], fmt="x", color='C1')
     plt.errorbar(z_list[-trim_index:], e_trapping[0][-trim_index:]/m.values['ae'], xerr = z_err[-trim_index:], yerr=e_trapping[1][-trim_index:]/m.values['ae'], fmt="x", color='C0')
