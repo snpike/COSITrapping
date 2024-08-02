@@ -25,6 +25,7 @@ global_sigma_ratio = 0.85
 
 ### Important calibration lines.
 source_dict = {'Am241': 59.5409, 'Cs137': 661.657,'Co57': 122.06065, 'Ba133': 356.0129, 'Na22': 1274.537}
+erange_dict = {'Cs137': [630., 670.], 'Ba133': [330., 362.], 'Na22': [1220., 1290.], 'Am241': [50., 64.]}
 
 ### Functions for producing line profiles.
 
@@ -682,7 +683,7 @@ def depth_correction(df, z_bins, e_trapping, h_trapping, plot_dir="/home/cosilab
         else:
             carrier='LV'
         
-        color = 'C'+str(i+2)
+        color = 'C'+str(i)
         
         ax = axes[0][i]
         energies = df['energy_'+side].values
@@ -766,12 +767,12 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
             carrier='LV'
             i=1
 
-        color = 'C'+str(i+2)
+        color = 'C'+str(i)
         
         ax = axes[0][i]
         energies = df['energy_'+side].values
 
-        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Uncorrected " + carrier + " signal", range=(line_e-25., line_e+10.), color=color)
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Uncorrected " + carrier + " signal", range=(erange_dict[source][0], erange_dict[source][1]), color=color)
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
         # fwhm_spline = UnivariateSpline(bin_centers, hist-0.5*np.max(hist))
@@ -800,7 +801,7 @@ def depth_correction_CCE(df, ae, ah, b, c, sim_dCCE_path, plot_dir="/home/cosila
         df['depth_corrected_energy_'+side] = energies
 
         ax = axes[1][i]
-        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Corrected " + carrier + " signal", range=(line_e-25., line_e+10.), color=color)
+        hist,binedges,_ = ax.hist(energies[~df['bad'].values], histtype="step", bins=100, label="Corrected " + carrier + " signal", range=(erange_dict[source][0], erange_dict[source][1]), color=color)
         bin_centers = np.array((binedges[:-1] + binedges[1:]) / 2)
 
         fwhm, fwtm, fwhm_err, fwtm_err = get_FWHM_FWTM(bin_centers, hist)
@@ -852,8 +853,8 @@ def fit_CCE(z_bins, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
     z_list = (z_bins[:-1] + z_bins[1:])/2.
     z_err = (z_bins[1:]-z_bins[:-1])/2.
 
-    c = cost.LeastSquares(z_list, e_trapping[0], e_trapping[1], e_depth_plot) + \
-    cost.LeastSquares(z_list, h_trapping[0], h_trapping[1], h_depth_plot)
+    c = cost.LeastSquares(z_list[trim_index:-trim_index], e_trapping[0][trim_index:-trim_index], e_trapping[1][trim_index:-trim_index], e_depth_plot) + \
+    cost.LeastSquares(z_list[trim_index:-trim_index], h_trapping[0][trim_index:-trim_index], h_trapping[1][trim_index:-trim_index], h_depth_plot)
 
     m = Minuit(c, ae=np.max(e_trapping[0]), ah=np.max(h_trapping[0]), b=1.0, c=9.)
     m.limits["b", "c"] = (0, None)
