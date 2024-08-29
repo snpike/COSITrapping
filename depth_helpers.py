@@ -364,7 +364,7 @@ class DepthCalibrator_Am241:
         return self.sim_depth, self.sim_ctd
 
 class Detector:
-
+### Work in progress
     def __init__(self, irradiation_list, zmin, zmax, calibrator=None):
         self.irradiation_list = irradiation_list
         self.calibrator = calibrator
@@ -376,7 +376,7 @@ class Detector:
         self.zmax = zmax
 
 class Irradiation:
-
+### Work in progress
     def __init__(self, source, irr_side, filelist, emin = 30., emax=10000.):
         
         self.source = None
