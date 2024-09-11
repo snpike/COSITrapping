@@ -601,6 +601,8 @@ def make_depthplot(df, plot_suffix, z_bins, plot_dir="/home/cosilab/CalibrationD
             m.limits["x0"] = (bin_centers[np.argmax(hist)]-3., bin_centers[np.argmax(hist)]+3.)
             m.limits["BoverA", "sigma_gauss"] = (0, None)
             m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
+            m.errors = m.values * 0.1
+            m.scan()
             m.migrad()
             m.hesse()
 
@@ -858,6 +860,8 @@ def fit_CCE(z_bins, e_trapping, h_trapping, sim_dCCE_path, plot_dir="/home/cosil
 
     m = Minuit(c, ae=np.max(e_trapping[0]), ah=np.max(h_trapping[0]), b=1.0, c=9.)
     m.limits["b", "c"] = (0, None)
+    m.errors["b", "c"] = 0.1
+    m.scan()
     m.migrad()
     m.hesse()
     m.minos()
