@@ -605,7 +605,7 @@ def make_depthplot(df, plot_suffix, z_bins, plot_dir="/home/cosilab/CalibrationD
             m.scan()
             m.migrad()
             m.hesse()
-            m.minos("x0")
+            # m.minos("x0")
 
             BoverA, x0, sigma_gauss = m.values[:3]
             A = np.sum(hist)*(bin_centers[1]-bin_centers[0])/\
