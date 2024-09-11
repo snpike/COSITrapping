@@ -601,7 +601,7 @@ def make_depthplot(df, plot_suffix, z_bins, plot_dir="/home/cosilab/CalibrationD
             m.limits["x0"] = (bin_centers[np.argmax(hist)]-3., bin_centers[np.argmax(hist)]+3.)
             m.limits["BoverA", "sigma_gauss"] = (0, None)
             m.fixed["gamma", "CoverB", "D", "sigma_ratio", "Emin", "Emax"] = True
-            m.errors["x0", "BoverA", "sigma_gauss"] = m.values["x0", "BoverA", "sigma_gauss"] * 0.1
+            m.errors["x0", "BoverA", "sigma_gauss"] = np.array(m.values["x0", "BoverA", "sigma_gauss"]) * 0.1
             m.scan()
             m.migrad()
             m.hesse()
