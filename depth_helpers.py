@@ -613,7 +613,7 @@ def make_depthplot(df, plot_suffix, z_bins, plot_dir="/home/cosilab/CalibrationD
             # print(m.values)
             # print(m.errors['x0'])
             temp_x0.append(m.values['x0'])
-            temp_x0_err.append(m.errors['x0'])
+            temp_x0_err.append(max(m.errors['x0'], m.values["sigma_gauss"]/np.sqrt(A)))
             # print(c(*m.values))
             # print(np.sum(np.log(gauss_plus_tail_pdf(df_dat_det[df_dat_det["z_binned"]==z]["energy_p"].values, *m.values))))
             B = A*BoverA
