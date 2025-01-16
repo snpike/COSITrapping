@@ -15,9 +15,9 @@ from scipy.stats import norm
 def gauss(x, A, mu, sigma):
     return A*norm.pdf(x, loc=mu, scale=sigma)
 
-def dat2CTD(filelist, emin, emax):
+def dat2CTD(filelist, emin, emax, nstrips):
     ### Take in a list of calibrated .dat files and record the CTD between the p-side and n-side for events in energy range emin < E < emax.
-    CTD = [[[] for i in range(37)]for i in range(37)]
+    CTD = [[[] for i in range(nstrips)]for i in range(nstrips)]
     SH_list = []
     BD_list = []
     print('reading input files...')
@@ -50,18 +50,18 @@ def dat2CTD(filelist, emin, emax):
 
 def writeCTD(CTD, outdir, file_prefix):
     print('writing data files...')
-    for p in tqdm(range(37)):
-        for n in range(37):
+    for p in tqdm(range(nstrips)):
+        for n in range(nstrips):
             hist, bin_edges = np.histogram(CTD[p][n], bins=np.linspace(-350,350,num=100))
             bin_centers = (bin_edges[:-1] + bin_edges[1:])/2
             np.array([bin_centers, hist]).tofile(outdir+'/datafiles/'+file_prefix+'_p'+str(p)+'_n'+str(n)+'.csv', sep=',')
 
-def plotCTD(CTD, outdir, file_prefix, fit_CTD, side):
+def plotCTD(CTD, outdir, file_prefix, fit_CTD, side, nstrips):
     print('plotting CTDs...')
     
-    CTD_params = [[[0.,0.,0.,0.] for i in range(37)]for i in range(37)]
-    for p in tqdm(range(37)):
-        for n in range(37):
+    CTD_params = [[[0.,0.,0.,0.] for i in range(nstrips)]for i in range(nstrips)]
+    for p in tqdm(range(nstrips)):
+        for n in range(nstrips):
             plt.figure()
             hist, bin_edges, _ = plt.hist(CTD[p][n], bins=np.linspace(-350,350,num=100))
             bin_centers = (bin_edges[:-1] + bin_edges[1:])/2
@@ -92,8 +92,8 @@ def plotCTD(CTD, outdir, file_prefix, fit_CTD, side):
         with open(outdir + '/CTD_parameters.txt', 'w') as f:
             f.write('### Parameters of the CTD determined using Gaussian fits.\n')
             f.write('### p strip, n strip, gauss mean, gauss sigma, mean err, sigma err\n')
-            for p in range(37):
-                for n in range(37):
+            for p in range(nstrips):
+                for n in range(nstrips):
                     f.write(str(p) + ', ' + str(n) + ', ' + \
                         str(CTD_params[p][n][0]) + ', ' + str(CTD_params[p][n][1]) + ', ' + str(CTD_params[p][n][2]) + ', ' + str(CTD_params[p][n][3]) + '\n')
         
@@ -115,7 +115,7 @@ def plotCTD(CTD, outdir, file_prefix, fit_CTD, side):
         plt.savefig(outdir+'/'+file_prefix + '_meanCTDmap.pdf')
         plt.close()
  
-    image = np.array([[len(CTD[p][n]) for n in range(37)] for p in range(37)])
+    image = np.array([[len(CTD[p][n]) for n in range(nstrips)] for p in range(nstrips)])
     counts = np.sum(image)
     plt.figure()
     plt.imshow(image, origin='lower')
@@ -133,15 +133,16 @@ def main(argv):
     outdir=''
     emin = 0.0
     emax = 2000.
-    opts, args = getopt.getopt(argv, "hi:o:s:f", ['infile=','emin=','emax=','outdir=', 'side='])
+    opts, args = getopt.getopt(argv, "hi:o:s:n:f", ['infile=','emin=','emax=','outdir=', 'side=', 'nstrips='])
     filelist = []
     default_outdir = True
     file_prefix = ''
     fit_CTD=False
     side = None
+    nstrips = 37
     for opt, arg in opts:
         if opt == '-h':
-            print('python dat2CTD.py -i <inputfile> -o <outputdir> --emin <emin> --emax <emax> -s [AC, DC] -f')
+            print('python dat2CTD.py -i <inputfile> -o <outputdir> --emin <emin> --emax <emax> -s [AC, DC] -n [37,64] -f')
         elif opt in ('-i', '--infile'):
             filelist.append(arg)
         elif opt in ('-o', '--outdir'):
@@ -158,6 +159,11 @@ def main(argv):
                 assert False, "incorrect value for side. Must be AC or DC"
             else:
                 side = arg
+        elif opt in ('-n', '--nstrips'):
+            if int(arg)!=37 and int(arg)!=64:
+                assert False, "incorrect value for nstrips. Must be 37 or 64"
+            else:
+                nstrips = int(arg)
         else:
             assert False, "incorrect option"
     if side is None:
